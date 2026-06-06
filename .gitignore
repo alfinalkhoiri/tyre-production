@@ -1,0 +1,42 @@
+# Python / Django (backend)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+venv/
+.venv/
+env/
+ENV/
+*.log
+*.pot
+*.pyc
+db.sqlite3
+staticfiles/
+media/
+ml_models/
+htmlcov/
+.coverage
+
+# Environment variables
+.env
+*.env
+
+# Node / Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db

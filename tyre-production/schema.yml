@@ -1,0 +1,3281 @@
+openapi: 3.0.3
+info:
+  title: Tyre Production API
+  version: 1.0.0
+  description: REST API untuk sistem inventory & produksi tyre manufacturing. Autentikasi
+    menggunakan JWT Bearer token — dapatkan token via `/api/auth/login/`.
+  contact:
+    name: Tim Advance Database
+    email: alfin.khoiri@student.president.ac.id
+paths:
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: Kirim `username` dan `password`. Gunakan `access` token sebagai
+        `Bearer` di header.
+      summary: Login — dapatkan access & refresh token
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+            examples:
+              ContohLogin:
+                value:
+                  username: admin
+                  password: admin1234
+                summary: Contoh login
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/auth/token/refresh/:
+    post:
+      operationId: auth_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: Kirim `refresh` token di body. Token tidak bisa dipakai setelah
+        ini.
+      summary: Logout — blacklist refresh token
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh:
+                  type: string
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+          description: ''
+  /api/auth/register/:
+    post:
+      operationId: auth_register_create
+      summary: Daftarkan user baru (admin only)
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Register'
+          description: ''
+  /api/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      summary: Profile user yang sedang login
+      tags:
+      - Auth
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    put:
+      operationId: auth_me_update
+      summary: Profile user yang sedang login
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: auth_me_partial_update
+      summary: Profile user yang sedang login
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/auth/change-password/:
+    post:
+      operationId: auth_change_password_create
+      summary: Ganti password
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+          description: ''
+  /api/auth/users/:
+    get:
+      operationId: auth_users_list
+      summary: List semua user (admin only)
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Auth
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+          description: ''
+  /api/spec/materials/:
+    post:
+      operationId: spec_materials_create
+      summary: Tambah material baru
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+          description: ''
+    get:
+      operationId: spec_materials_list
+      description: Mendukung filter `unit`, pencarian `kode`/`name`, dan ordering.
+      summary: List semua material
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: unit
+        schema:
+          type: string
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMaterialList'
+          description: ''
+  /api/spec/materials/low-stock/:
+    get:
+      operationId: spec_materials_low_stock_list
+      description: Mengembalikan semua material yang `stock <= safety_stock`.
+      summary: Material dengan stok di bawah safety stock
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: unit
+        schema:
+          type: string
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMaterialList'
+          description: ''
+  /api/spec/materials/{id}/:
+    get:
+      operationId: spec_materials_retrieve
+      summary: Detail material
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Material.
+        required: true
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+          description: ''
+    put:
+      operationId: spec_materials_update
+      summary: Update material (full)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Material.
+        required: true
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+          description: ''
+    patch:
+      operationId: spec_materials_partial_update
+      summary: Update material (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Material.
+        required: true
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMaterialRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMaterialRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMaterialRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+          description: ''
+    delete:
+      operationId: spec_materials_destroy
+      summary: Hapus material
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Material.
+        required: true
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/spec/tyre-specs/:
+    post:
+      operationId: spec_tyre_specs_create
+      summary: Tambah tyre spec baru
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TyreSpecRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TyreSpecRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TyreSpecRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TyreSpec'
+          description: ''
+    get:
+      operationId: spec_tyre_specs_list
+      description: 'Mengembalikan list ringkas (tanpa BOM). Filter: `size`, `is_custom`.'
+      summary: List tyre specification
+      parameters:
+      - in: query
+        name: is_custom
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: size
+        schema:
+          type: string
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTyreSpecListList'
+          description: ''
+  /api/spec/tyre-specs/{id}/:
+    get:
+      operationId: spec_tyre_specs_retrieve
+      summary: Detail tyre spec + BOM items
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Tyre Specification.
+        required: true
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TyreSpec'
+          description: ''
+    put:
+      operationId: spec_tyre_specs_update
+      summary: Update tyre spec (full)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Tyre Specification.
+        required: true
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TyreSpecRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TyreSpecRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TyreSpecRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TyreSpec'
+          description: ''
+    patch:
+      operationId: spec_tyre_specs_partial_update
+      summary: Update tyre spec (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Tyre Specification.
+        required: true
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTyreSpecRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTyreSpecRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTyreSpecRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TyreSpec'
+          description: ''
+    delete:
+      operationId: spec_tyre_specs_destroy
+      summary: Hapus tyre spec
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Tyre Specification.
+        required: true
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/spec/bom-items/:
+    post:
+      operationId: spec_bom_items_create
+      summary: Tambah BOM item
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BOMItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BOMItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BOMItemRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOMItem'
+          description: ''
+    get:
+      operationId: spec_bom_items_list
+      description: Filter berdasarkan `tyre_spec` atau `material`.
+      summary: List BOM items
+      parameters:
+      - in: query
+        name: material
+        schema:
+          type: integer
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: tyre_spec
+        schema:
+          type: integer
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBOMItemList'
+          description: ''
+  /api/spec/bom-items/{id}/:
+    get:
+      operationId: spec_bom_items_retrieve
+      summary: Detail BOM item
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this BOM Item.
+        required: true
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOMItem'
+          description: ''
+    put:
+      operationId: spec_bom_items_update
+      summary: Update BOM item (full)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this BOM Item.
+        required: true
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BOMItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BOMItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BOMItemRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOMItem'
+          description: ''
+    patch:
+      operationId: spec_bom_items_partial_update
+      summary: Update BOM item (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this BOM Item.
+        required: true
+      tags:
+      - Specification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedBOMItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedBOMItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedBOMItemRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOMItem'
+          description: ''
+    delete:
+      operationId: spec_bom_items_destroy
+      summary: Hapus BOM item
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this BOM Item.
+        required: true
+      tags:
+      - Specification
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/inventory/transactions/:
+    post:
+      operationId: inventory_transactions_create
+      description: '`stock_before` dan `stock_after` dihitung otomatis dari stok material
+        saat ini. Tipe `IN` menambah stok, `AUTO` mengurangi stok.'
+      summary: Catat transaksi stok
+      tags:
+      - Inventory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockTransactionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StockTransactionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StockTransactionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockTransaction'
+          description: ''
+    get:
+      operationId: inventory_transactions_list
+      description: 'Filter: `type` (IN/AUTO), `material`, `date`. Terurut terbaru
+        lebih dulu.'
+      summary: List transaksi stok
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: material
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: type
+        schema:
+          type: string
+          enum:
+          - AUTO
+          - IN
+        description: |-
+          * `IN` - Penerimaan
+          * `AUTO` - Pemakaian Otomatis
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStockTransactionList'
+          description: ''
+  /api/inventory/transactions/by-material/{material_id}/:
+    get:
+      operationId: inventory_transactions_by_material_list
+      summary: Riwayat transaksi per material
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: material
+        schema:
+          type: integer
+      - in: path
+        name: material_id
+        schema:
+          type: integer
+        description: ID material
+        required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: type
+        schema:
+          type: string
+          enum:
+          - AUTO
+          - IN
+        description: |-
+          * `IN` - Penerimaan
+          * `AUTO` - Pemakaian Otomatis
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStockTransactionList'
+          description: ''
+  /api/inventory/transactions/{id}/:
+    get:
+      operationId: inventory_transactions_retrieve
+      summary: Detail transaksi
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Stock Transaction.
+        required: true
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockTransaction'
+          description: ''
+    put:
+      operationId: inventory_transactions_update
+      summary: Update transaksi (full)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Stock Transaction.
+        required: true
+      tags:
+      - Inventory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockTransactionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StockTransactionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StockTransactionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockTransaction'
+          description: ''
+    patch:
+      operationId: inventory_transactions_partial_update
+      summary: Update transaksi (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Stock Transaction.
+        required: true
+      tags:
+      - Inventory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedStockTransactionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedStockTransactionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedStockTransactionRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockTransaction'
+          description: ''
+    delete:
+      operationId: inventory_transactions_destroy
+      summary: Hapus transaksi
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Stock Transaction.
+        required: true
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/production/orders/:
+    post:
+      operationId: production_orders_create
+      summary: Buat production order baru
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrder'
+          description: ''
+    get:
+      operationId: production_orders_list
+      description: 'List ringkas. Filter: `status`, `shift`, `date`.'
+      summary: List production orders
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: shift
+        schema:
+          type: string
+          enum:
+          - '1'
+          - '2'
+          - '3'
+        description: |-
+          * `1` - Shift 1
+          * `2` - Shift 2
+          * `3` - Shift 3
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - CONFIRMED
+          - DONE
+          - DRAFT
+          - IN_PROGRESS
+        description: |-
+          * `DRAFT` - Draft
+          * `CONFIRMED` - Dikonfirmasi
+          * `IN_PROGRESS` - Sedang Berjalan
+          * `DONE` - Selesai
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductionOrderListList'
+          description: ''
+  /api/production/orders/{id}/:
+    get:
+      operationId: production_orders_retrieve
+      summary: Detail production order + items
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrder'
+          description: ''
+    put:
+      operationId: production_orders_update
+      summary: Update order (full)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrder'
+          description: ''
+    patch:
+      operationId: production_orders_partial_update
+      summary: Update order (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProductionOrderRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProductionOrderRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProductionOrderRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrder'
+          description: ''
+    delete:
+      operationId: production_orders_destroy
+      summary: Hapus order
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/production/orders/{id}/confirm/:
+    post:
+      operationId: production_orders_confirm_create
+      summary: Konfirmasi order (DRAFT → CONFIRMED)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/production/orders/{id}/done/:
+    post:
+      operationId: production_orders_done_create
+      summary: Selesaikan produksi (IN_PROGRESS → DONE)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/production/orders/{id}/start/:
+    post:
+      operationId: production_orders_start_create
+      summary: Mulai produksi (CONFIRMED → IN_PROGRESS)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/production/order-items/:
+    post:
+      operationId: production_order_items_create
+      summary: Tambah item ke order
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderItemRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrderItem'
+          description: ''
+    get:
+      operationId: production_order_items_list
+      summary: List order items
+      parameters:
+      - in: query
+        name: order
+        schema:
+          type: integer
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: tyre_spec
+        schema:
+          type: integer
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductionOrderItemList'
+          description: ''
+  /api/production/order-items/{id}/:
+    get:
+      operationId: production_order_items_retrieve
+      summary: Detail order item
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order Item.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrderItem'
+          description: ''
+    put:
+      operationId: production_order_items_update
+      summary: Update order item (full)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order Item.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductionOrderItemRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrderItem'
+          description: ''
+    patch:
+      operationId: production_order_items_partial_update
+      summary: Update order item (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order Item.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProductionOrderItemRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProductionOrderItemRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProductionOrderItemRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductionOrderItem'
+          description: ''
+    delete:
+      operationId: production_order_items_destroy
+      summary: Hapus order item
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Production Order Item.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/production/daily-usages/:
+    post:
+      operationId: production_daily_usages_create
+      description: Kirim `entries` sebagai array. Signal otomatis membuat `StockTransaction`
+        per entry.
+      summary: Catat daily usage beserta entries (nested)
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DailyUsageWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DailyUsageWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DailyUsageWriteRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageWrite'
+          description: ''
+    get:
+      operationId: production_daily_usages_list
+      description: 'Filter: `date`, `shift`, `order`.'
+      summary: List daily usage
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: order
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: shift
+        schema:
+          type: string
+          enum:
+          - '1'
+          - '2'
+          - '3'
+        description: |-
+          * `1` - Shift 1
+          * `2` - Shift 2
+          * `3` - Shift 3
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDailyUsageList'
+          description: ''
+  /api/production/daily-usages/range/:
+    get:
+      operationId: production_daily_usages_range_list
+      summary: Daily usage dalam rentang tanggal
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: Tanggal mulai (YYYY-MM-DD)
+      - in: query
+        name: order
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: shift
+        schema:
+          type: string
+          enum:
+          - '1'
+          - '2'
+          - '3'
+        description: |-
+          * `1` - Shift 1
+          * `2` - Shift 2
+          * `3` - Shift 3
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: Tanggal akhir (YYYY-MM-DD)
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDailyUsageList'
+          description: ''
+  /api/production/daily-usages/{id}/:
+    get:
+      operationId: production_daily_usages_retrieve
+      summary: Detail daily usage + entries
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsage'
+          description: ''
+    put:
+      operationId: production_daily_usages_update
+      summary: Update daily usage (full) — entries diganti semua
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DailyUsageWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DailyUsageWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DailyUsageWriteRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageWrite'
+          description: ''
+    patch:
+      operationId: production_daily_usages_partial_update
+      summary: Update daily usage (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDailyUsageWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDailyUsageWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDailyUsageWriteRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageWrite'
+          description: ''
+    delete:
+      operationId: production_daily_usages_destroy
+      summary: Hapus daily usage
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/production/daily-usage-entries/:
+    post:
+      operationId: production_daily_usage_entries_create
+      summary: Tambah entry
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DailyUsageEntryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DailyUsageEntryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DailyUsageEntryRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageEntry'
+          description: ''
+    get:
+      operationId: production_daily_usage_entries_list
+      summary: List daily usage entries
+      parameters:
+      - in: query
+        name: daily_usage
+        schema:
+          type: integer
+      - in: query
+        name: material
+        schema:
+          type: integer
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDailyUsageEntryList'
+          description: ''
+  /api/production/daily-usage-entries/{id}/:
+    get:
+      operationId: production_daily_usage_entries_retrieve
+      summary: Detail entry
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage Entry.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageEntry'
+          description: ''
+    put:
+      operationId: production_daily_usage_entries_update
+      summary: Update entry (full)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage Entry.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DailyUsageEntryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DailyUsageEntryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DailyUsageEntryRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageEntry'
+          description: ''
+    patch:
+      operationId: production_daily_usage_entries_partial_update
+      summary: Update entry (partial)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage Entry.
+        required: true
+      tags:
+      - Production
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDailyUsageEntryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDailyUsageEntryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDailyUsageEntryRequest'
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyUsageEntry'
+          description: ''
+    delete:
+      operationId: production_daily_usage_entries_destroy
+      summary: Hapus entry
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Daily Usage Entry.
+        required: true
+      tags:
+      - Production
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/production/analytics/material-usage/:
+    get:
+      operationId: production_analytics_material_usage_retrieve
+      summary: Total pemakaian per material dalam rentang tanggal
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: Tanggal mulai (YYYY-MM-DD)
+      - in: query
+        name: material_id
+        schema:
+          type: integer
+        description: Filter ke satu material
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: Tanggal akhir (YYYY-MM-DD)
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date_from:
+                    type: string
+                    format: date
+                  date_to:
+                    type: string
+                    format: date
+                  results:
+                    type: array
+                    items:
+                      type: object
+          description: ''
+  /api/production/analytics/daily-trend/:
+    get:
+      operationId: production_analytics_daily_trend_retrieve
+      summary: Tren pemakaian per material (time-series untuk grafik & ML)
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: Tanggal mulai (YYYY-MM-DD)
+      - in: query
+        name: group_by
+        schema:
+          type: string
+          enum:
+          - day
+          - month
+          - week
+        description: 'Granularitas: `day` (default), `week`, `month`'
+      - in: query
+        name: material_id
+        schema:
+          type: integer
+        description: Filter ke satu material
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: Tanggal akhir (YYYY-MM-DD)
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date_from:
+                    type: string
+                    format: date
+                  date_to:
+                    type: string
+                    format: date
+                  group_by:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      type: object
+          description: ''
+  /api/production/analytics/shift-summary/:
+    get:
+      operationId: production_analytics_shift_summary_retrieve
+      description: |-
+        Rata-rata dan total pemakaian per shift.
+        GET /api/analytics/shift-summary/?from=YYYY-MM-DD&to=YYYY-MM-DD
+      summary: Rata-rata dan total pemakaian dikelompokkan per shift
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: Tanggal mulai (YYYY-MM-DD)
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: Tanggal akhir (YYYY-MM-DD)
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date_from:
+                    type: string
+                    format: date
+                  date_to:
+                    type: string
+                    format: date
+                  results:
+                    type: array
+                    items:
+                      type: object
+          description: ''
+  /api/production/analytics/export/csv/:
+    get:
+      operationId: production_analytics_export_csv_retrieve
+      description: 'Kolom: `date`, `shift`, `order_number`, `material_kode`, `material_name`,
+        `unit`, `qty`.'
+      summary: Export DailyUsage ke CSV (streaming)
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: Tanggal mulai (YYYY-MM-DD)
+      - in: query
+        name: material_id
+        schema:
+          type: integer
+        description: Filter material
+      - in: query
+        name: shift
+        schema:
+          type: string
+          enum:
+          - '1'
+          - '2'
+          - '3'
+        description: Filter shift (1/2/3)
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: Tanggal akhir (YYYY-MM-DD)
+      tags:
+      - Analytics / Export
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+          description: ''
+  /api/production/analytics/export/json/:
+    get:
+      operationId: production_analytics_export_json_retrieve
+      description: Satu JSON object per baris. Langsung bisa di-load dengan `pandas.read_json(...,
+        lines=True)`.
+      summary: Export DailyUsage ke NDJSON (newline-delimited, untuk ML pipeline)
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: Tanggal mulai (YYYY-MM-DD)
+      - in: query
+        name: material_id
+        schema:
+          type: integer
+        description: Filter material
+      - in: query
+        name: shift
+        schema:
+          type: string
+          enum:
+          - '1'
+          - '2'
+          - '3'
+        description: Filter shift (1/2/3)
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: Tanggal akhir (YYYY-MM-DD)
+      tags:
+      - Analytics / Export
+      security:
+      - jwtAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                format: binary
+          description: ''
+components:
+  schemas:
+    BOMItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        material:
+          type: integer
+        material_detail:
+          allOf:
+          - $ref: '#/components/schemas/Material'
+          readOnly: true
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,4})?$
+        unit:
+          type: string
+          maxLength: 20
+        tyre_per_roll:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        roll_per_100_tyre:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+      required:
+      - id
+      - material
+      - material_detail
+      - qty
+      - roll_per_100_tyre
+      - tyre_per_roll
+      - unit
+    BOMItemRequest:
+      type: object
+      properties:
+        material:
+          type: integer
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,4})?$
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 20
+      required:
+      - material
+      - qty
+      - unit
+    ChangePasswordRequest:
+      type: object
+      properties:
+        old_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 8
+      required:
+      - new_password
+      - old_password
+    DailyUsage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        shift_display:
+          type: string
+          readOnly: true
+        order:
+          type: integer
+          nullable: true
+        order_number:
+          type: string
+          readOnly: true
+        note:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyUsageEntry'
+          readOnly: true
+      required:
+      - date
+      - entries
+      - id
+      - order_number
+      - shift
+      - shift_display
+    DailyUsageEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        material:
+          type: integer
+        material_detail:
+          allOf:
+          - $ref: '#/components/schemas/Material'
+          readOnly: true
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+      required:
+      - id
+      - material
+      - material_detail
+      - qty
+    DailyUsageEntryRequest:
+      type: object
+      properties:
+        material:
+          type: integer
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+      required:
+      - material
+      - qty
+    DailyUsageWrite:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        order:
+          type: integer
+          nullable: true
+        note:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyUsageEntry'
+      required:
+      - date
+      - entries
+      - id
+      - shift
+    DailyUsageWriteRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        order:
+          type: integer
+          nullable: true
+        note:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyUsageEntryRequest'
+      required:
+      - date
+      - entries
+      - shift
+    Material:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        kode:
+          type: string
+          maxLength: 50
+        unit:
+          type: string
+          maxLength: 20
+        roll_length:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        stock:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        safety_stock:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+      required:
+      - id
+      - kode
+      - name
+      - roll_length
+      - unit
+    MaterialRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kode:
+          type: string
+          minLength: 1
+          maxLength: 50
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 20
+        roll_length:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        stock:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        safety_stock:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+      required:
+      - kode
+      - name
+      - roll_length
+      - unit
+    PaginatedBOMItemList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BOMItem'
+    PaginatedDailyUsageEntryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyUsageEntry'
+    PaginatedDailyUsageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyUsage'
+    PaginatedMaterialList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Material'
+    PaginatedProductionOrderItemList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductionOrderItem'
+    PaginatedProductionOrderListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductionOrderList'
+    PaginatedStockTransactionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockTransaction'
+    PaginatedTyreSpecListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TyreSpecList'
+    PaginatedUserList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+    PatchedBOMItemRequest:
+      type: object
+      properties:
+        material:
+          type: integer
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,4})?$
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 20
+    PatchedDailyUsageEntryRequest:
+      type: object
+      properties:
+        material:
+          type: integer
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+    PatchedDailyUsageWriteRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        order:
+          type: integer
+          nullable: true
+        note:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyUsageEntryRequest'
+    PatchedMaterialRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kode:
+          type: string
+          minLength: 1
+          maxLength: 50
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 20
+        roll_length:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        stock:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        safety_stock:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+    PatchedProductionOrderItemRequest:
+      type: object
+      properties:
+        tyre_spec:
+          type: integer
+        qty_plan:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+    PatchedProductionOrderRequest:
+      type: object
+      properties:
+        number:
+          type: string
+          minLength: 1
+          maxLength: 50
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        pic:
+          type: string
+          minLength: 1
+          maxLength: 100
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+    PatchedStockTransactionRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        material:
+          type: integer
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        reference:
+          type: string
+          maxLength: 100
+    PatchedTyreSpecRequest:
+      type: object
+      properties:
+        size:
+          type: string
+          minLength: 1
+          maxLength: 50
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+        variant:
+          type: string
+          maxLength: 100
+        is_custom:
+          type: boolean
+    PatchedUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          title: Nama pengguna
+          description: Wajib. 150 karakter atau sedikit. Hanya huruf, angka, dan @/./+/-/_.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          title: Alamat email
+          maxLength: 254
+        first_name:
+          type: string
+          title: Nama depan
+          maxLength: 150
+        last_name:
+          type: string
+          title: Nama belakang
+          maxLength: 150
+    ProductionOrder:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        number:
+          type: string
+          maxLength: 50
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        shift_display:
+          type: string
+          readOnly: true
+        pic:
+          type: string
+          maxLength: 100
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        status_display:
+          type: string
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductionOrderItem'
+          readOnly: true
+      required:
+      - date
+      - id
+      - items
+      - number
+      - pic
+      - shift
+      - shift_display
+      - status_display
+    ProductionOrderItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        tyre_spec:
+          type: integer
+        tyre_spec_detail:
+          allOf:
+          - $ref: '#/components/schemas/TyreSpecList'
+          readOnly: true
+        qty_plan:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+      required:
+      - id
+      - qty_plan
+      - tyre_spec
+      - tyre_spec_detail
+    ProductionOrderItemRequest:
+      type: object
+      properties:
+        tyre_spec:
+          type: integer
+        qty_plan:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+      required:
+      - qty_plan
+      - tyre_spec
+    ProductionOrderList:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        number:
+          type: string
+          maxLength: 50
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        shift_display:
+          type: string
+          readOnly: true
+        pic:
+          type: string
+          maxLength: 100
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        status_display:
+          type: string
+          readOnly: true
+      required:
+      - date
+      - id
+      - number
+      - pic
+      - shift
+      - shift_display
+      - status_display
+    ProductionOrderRequest:
+      type: object
+      properties:
+        number:
+          type: string
+          minLength: 1
+          maxLength: 50
+        date:
+          type: string
+          format: date
+        shift:
+          $ref: '#/components/schemas/ShiftEnum'
+        pic:
+          type: string
+          minLength: 1
+          maxLength: 100
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+      required:
+      - date
+      - number
+      - pic
+      - shift
+    Register:
+      type: object
+      properties:
+        username:
+          type: string
+          title: Nama pengguna
+          description: Wajib. 150 karakter atau sedikit. Hanya huruf, angka, dan @/./+/-/_.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          title: Alamat email
+          maxLength: 254
+        first_name:
+          type: string
+          title: Nama depan
+          maxLength: 150
+        last_name:
+          type: string
+          title: Nama belakang
+          maxLength: 150
+      required:
+      - username
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          title: Nama pengguna
+          description: Wajib. 150 karakter atau sedikit. Hanya huruf, angka, dan @/./+/-/_.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          title: Alamat email
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        first_name:
+          type: string
+          title: Nama depan
+          maxLength: 150
+        last_name:
+          type: string
+          title: Nama belakang
+          maxLength: 150
+      required:
+      - password
+      - username
+    ShiftEnum:
+      enum:
+      - '1'
+      - '2'
+      - '3'
+      type: string
+      description: |-
+        * `1` - Shift 1
+        * `2` - Shift 2
+        * `3` - Shift 3
+    StatusEnum:
+      enum:
+      - DRAFT
+      - CONFIRMED
+      - IN_PROGRESS
+      - DONE
+      type: string
+      description: |-
+        * `DRAFT` - Draft
+        * `CONFIRMED` - Dikonfirmasi
+        * `IN_PROGRESS` - Sedang Berjalan
+        * `DONE` - Selesai
+    StockTransaction:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        date:
+          type: string
+          format: date
+        material:
+          type: integer
+        material_detail:
+          allOf:
+          - $ref: '#/components/schemas/Material'
+          readOnly: true
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        type_display:
+          type: string
+          readOnly: true
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        stock_before:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          readOnly: true
+        stock_after:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          readOnly: true
+        reference:
+          type: string
+          maxLength: 100
+      required:
+      - date
+      - id
+      - material
+      - material_detail
+      - qty
+      - stock_after
+      - stock_before
+      - type
+      - type_display
+    StockTransactionRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        material:
+          type: integer
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        qty:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        reference:
+          type: string
+          maxLength: 100
+      required:
+      - date
+      - material
+      - qty
+      - type
+    TokenObtainPair:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    TokenObtainPairRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    TypeEnum:
+      enum:
+      - IN
+      - AUTO
+      type: string
+      description: |-
+        * `IN` - Penerimaan
+        * `AUTO` - Pemakaian Otomatis
+    TyreSpec:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        size:
+          type: string
+          maxLength: 50
+        model:
+          type: string
+          maxLength: 100
+        variant:
+          type: string
+          maxLength: 100
+        is_custom:
+          type: boolean
+        bom_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BOMItem'
+          readOnly: true
+      required:
+      - bom_items
+      - id
+      - model
+      - size
+      - variant
+    TyreSpecList:
+      type: object
+      description: Serializer ringkas untuk list view (tanpa bom_items).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        size:
+          type: string
+          maxLength: 50
+        model:
+          type: string
+          maxLength: 100
+        variant:
+          type: string
+          maxLength: 100
+        is_custom:
+          type: boolean
+      required:
+      - id
+      - model
+      - size
+      - variant
+    TyreSpecListRequest:
+      type: object
+      description: Serializer ringkas untuk list view (tanpa bom_items).
+      properties:
+        size:
+          type: string
+          minLength: 1
+          maxLength: 50
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+        variant:
+          type: string
+          maxLength: 100
+        is_custom:
+          type: boolean
+      required:
+      - model
+      - size
+      - variant
+    TyreSpecRequest:
+      type: object
+      properties:
+        size:
+          type: string
+          minLength: 1
+          maxLength: 50
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+        variant:
+          type: string
+          maxLength: 100
+        is_custom:
+          type: boolean
+      required:
+      - model
+      - size
+      - variant
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          title: Nama pengguna
+          description: Wajib. 150 karakter atau sedikit. Hanya huruf, angka, dan @/./+/-/_.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          title: Alamat email
+          maxLength: 254
+        first_name:
+          type: string
+          title: Nama depan
+          maxLength: 150
+        last_name:
+          type: string
+          title: Nama belakang
+          maxLength: 150
+        is_staff:
+          type: boolean
+          readOnly: true
+          title: Status staf
+          description: Menentukan apakah pengguna berhak masuk ke situs administrasi
+            ini.
+      required:
+      - id
+      - is_staff
+      - username
+    UserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          title: Nama pengguna
+          description: Wajib. 150 karakter atau sedikit. Hanya huruf, angka, dan @/./+/-/_.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          title: Alamat email
+          maxLength: 254
+        first_name:
+          type: string
+          title: Nama depan
+          maxLength: 150
+        last_name:
+          type: string
+          title: Nama belakang
+          maxLength: 150
+      required:
+      - username
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
