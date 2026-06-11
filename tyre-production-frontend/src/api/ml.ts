@@ -1,8 +1,8 @@
 import api from './client'
-import type { ForecastResponse, ModelStatus } from '@/types'
+import type { EstimateResponse, EstimateItem } from '@/types'
 
-export const getForecast = (material_id: number, forecast_days: number) =>
-  api.post<ForecastResponse>('/ml/forecast/', { material_id, forecast_days }).then(r => r.data)
+export const getEstimates = (horizon = 7) =>
+  api.get<EstimateResponse>('/ml/forecast/', { params: { horizon } }).then(r => r.data)
 
-export const getModelStatus = () =>
-  api.get<ModelStatus>('/ml/model-status/').then(r => r.data)
+export const getMaterialEstimate = (materialId: number, horizon = 7) =>
+  api.get<EstimateItem>(`/ml/forecast/${materialId}/`, { params: { horizon } }).then(r => r.data)

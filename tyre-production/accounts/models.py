@@ -6,15 +6,15 @@ from django.dispatch import receiver
 
 class UserProfile(models.Model):
     ROLE_ADMIN = 'admin'
-    ROLE_MANAGER = 'manager'
+    ROLE_PURCHASING = 'purchasing'
     ROLE_OPERATOR = 'operator'
     ROLE_VIEWER = 'viewer'
 
     ROLE_CHOICES = [
         (ROLE_ADMIN, 'Admin'),
-        (ROLE_MANAGER, 'Manager'),
-        (ROLE_OPERATOR, 'Operator'),
-        (ROLE_VIEWER, 'Viewer'),
+        (ROLE_PURCHASING, 'Admin Purchasing'),
+        (ROLE_OPERATOR, 'Operator Gudang'),
+        (ROLE_VIEWER, 'Manajemen'),
     ]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')

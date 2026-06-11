@@ -5,91 +5,78 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
-from specification.models import Material
-from .data import load_usage_dataframe
-from .model import predict_future, get_training_meta, load_model
-from .serializers import ForecastRequestSerializer, ForecastItemSerializer, TrainingMetricsSerializer
+from .forecast import estimate_all, estimate_material, DEFAULT_HORIZON
 
 
 @extend_schema(
-    summary='Forecast pemakaian material untuk N hari ke depan',
+    summary='Estimasi kebutuhan semua material (ADC)',
     description=(
-        'Model RandomForest per-material dilatih dari DailyUsageEntry historis. '
-        'Kembalikan prediksi qty per hari per shift beserta 95% confidence interval. '
-        'Jalankan `python manage.py train_forecast` sebelum memanggil endpoint ini.'
+        'Mengembalikan estimasi kebutuhan seluruh material berdasarkan '
+        'Average Daily Consumption (ADC) dari riwayat pemakaian harian. '
+        'Murni aritmetika — bukan prediksi ML. '
+        'Parameter opsional: ?horizon=N (hari, default 7).'
     ),
-    tags=['ML Forecast'],
-    request=ForecastRequestSerializer,
-    responses={
-        200: {
-            'type': 'object',
-            'properties': {
-                'material_id':   {'type': 'integer'},
-                'material_kode': {'type': 'string'},
-                'forecast_days': {'type': 'integer'},
-                'predictions':   {'type': 'array', 'items': {'type': 'object'}},
-            },
-        },
-        400: OpenApiTypes.OBJECT,
-        404: OpenApiTypes.OBJECT,
-    },
+    tags=['Estimasi Kebutuhan'],
+    parameters=[
+        OpenApiParameter('horizon', OpenApiTypes.INT, description='Horizon proyeksi dalam hari (1-90, default 7)'),
+    ],
+    responses={200: OpenApiTypes.OBJECT},
 )
 class ForecastView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        ser = ForecastRequestSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-
-        material_id   = ser.validated_data['material_id']
-        forecast_days = ser.validated_data['forecast_days']
-
+    def get(self, request):
         try:
-            material = Material.objects.get(pk=material_id)
-        except Material.DoesNotExist:
-            return Response({'detail': 'Material tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+            horizon = int(request.query_params.get('horizon', DEFAULT_HORIZON))
+            horizon = max(1, min(horizon, 90))
+        except (ValueError, TypeError):
+            horizon = DEFAULT_HORIZON
 
-        if load_model(material_id) is None:
-            return Response(
-                {'detail': f'Model untuk material {material.kode} belum dilatih. '
-                           f'Jalankan: python manage.py train_forecast'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        df = load_usage_dataframe()
-        history = df[df['material_id'] == material_id] if not df.empty else df
-
-        predictions = predict_future(material_id, history, forecast_days)
-
+        estimates = estimate_all(horizon=horizon)
+        perlu_pesan = [e for e in estimates if e['status'] == 'perlu_pesan']
         return Response({
-            'material_id':   material_id,
-            'material_kode': material.kode,
-            'material_name': material.name,
-            'unit':          material.unit,
-            'forecast_days': forecast_days,
-            'predictions':   predictions,
+            'horizon':      horizon,
+            'total':        len(estimates),
+            'perlu_pesan':  len(perlu_pesan),
+            'estimates':    estimates,
         })
 
 
 @extend_schema(
-    summary='Status model yang sudah dilatih & metrik evaluasi',
-    description='Mengembalikan informasi model terakhir yang dilatih per material.',
-    tags=['ML Forecast'],
-    responses={200: {'type': 'object'}},
+    summary='Estimasi kebutuhan per material',
+    description='Kembalikan estimasi ADC untuk satu material.',
+    tags=['Estimasi Kebutuhan'],
+    parameters=[
+        OpenApiParameter('horizon', OpenApiTypes.INT, description='Horizon proyeksi dalam hari (default 7)'),
+    ],
+    responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
 )
-class ModelStatusView(APIView):
+class MaterialForecastView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        meta = get_training_meta()
-        if not meta:
-            return Response({
-                'status': 'belum ada model',
-                'detail': 'Jalankan: python manage.py train_forecast',
-            })
+    def get(self, request, material_id):
+        from django.db.models import Sum
+        from production.models import DailyUsageEntry
+        from specification.models import Material
 
-        return Response({
-            'trained_materials': meta.get('trained_materials', []),
-            'feature_cols':      meta.get('feature_cols', []),
-            'metrics':           meta.get('results', {}),
-        })
+        try:
+            mat = Material.objects.get(pk=material_id)
+        except Material.DoesNotExist:
+            return Response({'detail': 'Material tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            horizon = int(request.query_params.get('horizon', DEFAULT_HORIZON))
+            horizon = max(1, min(horizon, 90))
+        except (ValueError, TypeError):
+            horizon = DEFAULT_HORIZON
+
+        rows = (
+            DailyUsageEntry.objects
+            .filter(material_id=material_id)
+            .values('daily_usage__date')
+            .annotate(day_qty=Sum('qty'))
+            .order_by('daily_usage__date')
+        )
+        daily_series = [(r['daily_usage__date'], float(r['day_qty'])) for r in rows]
+
+        return Response(estimate_material(mat, daily_series, horizon))

@@ -62,7 +62,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             user.is_staff = True
             user.is_superuser = True
             user.save()
-        elif role == UserProfile.ROLE_MANAGER:
+        elif role == UserProfile.ROLE_PURCHASING:
             user.is_staff = True
             user.save()
         profile, _ = UserProfile.objects.get_or_create(user=user)

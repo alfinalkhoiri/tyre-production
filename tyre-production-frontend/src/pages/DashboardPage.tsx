@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, PackageX, ClipboardX } from 'lucide-react'
 import { getMaterials } from '@/api/spec'
-import { getOrders, getProdStock } from '@/api/production'
+import { getOrders, getProdStock, getPurchasingAlerts } from '@/api/production'
 import { useAuth, getUIGroup } from '@/context/AuthContext'
+import type { PurchasingAlerts } from '@/types'
 
 function formatNum(n: number, d = 2) {
   return n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d })
@@ -20,6 +21,107 @@ const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
   DONE:         { cls: 'chip-success',  label: 'Selesai' },
 }
 
+// ── Purchasing Alert Banner ────────────────────────────────────
+
+function PurchasingAlertBanner({ alerts }: { alerts: PurchasingAlerts }) {
+  const critWarehouse  = alerts.low_warehouse_stock.filter(m => m.level === 'critical')
+  const lowWarehouse   = alerts.low_warehouse_stock.filter(m => m.level === 'low')
+  const critProd       = alerts.low_prod_stock.filter(m => m.level === 'critical')
+  const lowProd        = alerts.low_prod_stock.filter(m => m.level === 'low')
+  const needNewOrder   = alerts.active_orders_count <= 1
+
+  const hasAny = critWarehouse.length > 0 || lowWarehouse.length > 0 ||
+                 critProd.length > 0 || lowProd.length > 0 || needNewOrder
+
+  if (!hasAny) return null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+      {/* Critical warehouse stock */}
+      {critWarehouse.length > 0 && (
+        <div className="alert alert-danger">
+          <PackageX size={15} />
+          <div>
+            <strong>Stok Gudang Kritis!</strong> {critWarehouse.length} material di bawah 50% safety stock — segera lakukan pemesanan.
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+              {critWarehouse.map(m => (
+                <span key={m.id} className="chip chip-danger" style={{ fontSize: '11px' }}>
+                  {m.kode} — {m.stock?.toFixed(1)} / {m.safety_stock} {m.unit} ({m.pct?.toFixed(0)}%)
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Low warehouse stock */}
+      {lowWarehouse.length > 0 && (
+        <div className="alert alert-warning">
+          <AlertTriangle size={15} />
+          <div>
+            <strong>Stok Gudang Rendah.</strong> {lowWarehouse.length} material mendekati safety stock.
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+              {lowWarehouse.map(m => (
+                <span key={m.id} className="chip chip-warning" style={{ fontSize: '11px' }}>
+                  {m.kode} — {m.stock?.toFixed(1)} / {m.safety_stock} {m.unit} ({m.pct?.toFixed(0)}%)
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Critical production stock */}
+      {critProd.length > 0 && (
+        <div className="alert alert-danger">
+          <PackageX size={15} />
+          <div>
+            <strong>Stok Produksi Kritis!</strong> {critProd.length} material di lantai produksi habis atau minus.{' '}
+            Operator membutuhkan kiriman material segera.
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+              {critProd.map(m => (
+                <span key={m.id} className="chip chip-danger" style={{ fontSize: '11px' }}>
+                  {m.kode} — sisa {m.balance?.toFixed(1)} {m.unit}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Low production stock */}
+      {lowProd.length > 0 && critProd.length === 0 && (
+        <div className="alert alert-warning">
+          <AlertTriangle size={15} />
+          <div>
+            <strong>Stok Produksi Hampir Habis.</strong> {lowProd.length} material mendekati safety stock di lantai produksi.
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+              {lowProd.map(m => (
+                <span key={m.id} className="chip chip-warning" style={{ fontSize: '11px' }}>
+                  {m.kode} — sisa {m.balance?.toFixed(1)} {m.unit}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Few active orders */}
+      {needNewOrder && (
+        <div className="alert alert-warning">
+          <ClipboardX size={15} />
+          <div>
+            <strong>Izin Produksi Hampir Habis!</strong>{' '}
+            Hanya {alerts.active_orders_count} izin aktif tersisa
+            {alerts.draft_orders_count > 0 && ` (${alerts.draft_orders_count} masih Draft)`}.{' '}
+            Buat izin produksi baru agar proses tidak terhenti.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── GUDANG Dashboard ─────────────────────────────────────────
 
 function GudangDashboard() {
@@ -30,6 +132,11 @@ function GudangDashboard() {
   const { data: ordersData } = useQuery({
     queryKey: ['orders', 1],
     queryFn: () => getOrders({ page_size: '20' }),
+  })
+  const { data: purchasingAlerts } = useQuery({
+    queryKey: ['purchasing-alerts'],
+    queryFn: getPurchasingAlerts,
+    refetchInterval: 60000,
   })
 
   const materials   = matData?.results ?? []
@@ -42,6 +149,8 @@ function GudangDashboard() {
 
   return (
     <>
+      {purchasingAlerts && <PurchasingAlertBanner alerts={purchasingAlerts} />}
+
       <div className="metrics-grid" style={{ marginBottom: '16px' }}>
         {[
           { label: 'Total Izin',   value: ordersData?.count ?? '—' },
@@ -57,22 +166,6 @@ function GudangDashboard() {
           </div>
         ))}
       </div>
-
-      {critStock.length > 0 && (
-        <div className="alert alert-danger" style={{ marginBottom: '14px' }}>
-          <AlertTriangle size={14} />
-          <div>
-            <strong>Kekurangan Material!</strong> {critStock.length} material di bawah 50% safety stock:{' '}
-            {critStock.map(m => <span key={m.id} className="chip chip-danger" style={{ marginLeft: 4 }}>{m.kode}</span>)}
-          </div>
-        </div>
-      )}
-      {lowStock.length > 0 && critStock.length === 0 && (
-        <div className="alert alert-warning" style={{ marginBottom: '14px' }}>
-          <AlertTriangle size={14} />
-          {lowStock.length} material di bawah safety stock: {lowStock.map(m => m.kode).join(', ')}
-        </div>
-      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
         {/* Izin terbaru */}

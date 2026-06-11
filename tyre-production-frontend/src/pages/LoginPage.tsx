@@ -222,9 +222,9 @@ export function LoginPage() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {[
               { role: 'Admin', color: '#7c3aed' },
-              { role: 'Manager', color: '#2563eb' },
-              { role: 'Operator', color: '#16a34a' },
-              { role: 'Viewer', color: '#6b7280' },
+              { role: 'Admin Purchasing', color: '#2563eb' },
+              { role: 'Operator Gudang', color: '#16a34a' },
+              { role: 'Manajemen', color: '#6b7280' },
             ].map(r => (
               <span key={r.role} style={{
                 fontSize: '11px', fontWeight: 500,

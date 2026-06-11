@@ -199,6 +199,7 @@
 .tbl tr:last-child td { border-bottom: none; }
 .tbl tr:hover td { background: var(--color-background-secondary); }
 .tbl tr.row-danger td { background: #fef2f2; color: var(--color-text-danger); }
+.tbl tr.row-warning td { background: #fffbeb; }
 .tbl tr.row-success td { background: #f0fdf4; }
 .tbl tr.row-highlight td { background: #f0fdf4; }
 

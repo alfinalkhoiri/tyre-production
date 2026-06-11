@@ -135,3 +135,18 @@ class TyreDeliveryEntry(models.Model):
 
     class Meta:
         unique_together = [('delivery', 'tyre_spec')]
+
+
+# ── Stock Reservation (Lock) ──────────────────────────────────────────────────
+
+class StockReservation(models.Model):
+    """Stok gudang yang dikunci untuk izin produksi yang sudah dikonfirmasi."""
+    order        = models.ForeignKey(ProductionOrder, on_delete=models.CASCADE, related_name='stock_reservations')
+    material     = models.ForeignKey(Material, on_delete=models.PROTECT, related_name='stock_reservations')
+    qty_reserved = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        unique_together = [('order', 'material')]
+
+    def __str__(self):
+        return f'{self.order.number} — lock {self.material.kode} x{self.qty_reserved}'

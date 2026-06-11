@@ -12,8 +12,8 @@ from accounts.models import AuditLog
 from accounts.permissions import (
     ProductionOrderWritePermission,
     DailyUsageWritePermission,
-    IsAdminOrManager,
-    IsAdminOrManagerOrOperator,
+    IsAdminOrPurchasing,
+    IsAdminOrPurchasingOrOperator,
 )
 from .models import (
     ProductionOrder, ProductionOrderItem,
@@ -46,7 +46,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
     _read_actions = {
         'list', 'retrieve', 'requirements', 'prod_stock',
         'pending_shipments', 'pending_counts', 'safety_suggestions',
-        'progress', 'order_yield',
+        'progress', 'order_yield', 'analytics',
     }
 
     def get_permissions(self):
@@ -59,7 +59,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             # GET is open; POST checked inside the action
             return [IsAuthenticated()]
         # create/update/partial_update/destroy/confirm/start/done
-        return [IsAdminOrManager()]
+        return [IsAdminOrPurchasing()]
 
     def create(self, request, *args, **kwargs):
         ser = self.get_serializer(data=request.data)
@@ -79,27 +79,39 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='confirm')
     def confirm(self, request, pk=None):
+        from .models import StockReservation
         order = self.get_object()
         if order.status != ProductionOrder.STATUS_DRAFT:
             return Response({'detail': 'Hanya order DRAFT yang bisa dikonfirmasi.'}, status=400)
 
         items = order.items.prefetch_related('tyre_spec__bom_items__material').all()
-        reqs = aggregate_requirements(items)
+        reqs  = aggregate_requirements(items, exclude_order_id=order.pk)
         shortages = [
             {
-                'kode': r['kode'], 'name': r['name'], 'unit': r['unit'],
-                'required': r['qty_needed'],
-                'available': r['stock'],
-                'shortage': abs(r['shortage']),
+                'kode':      r['kode'],    'name': r['name'], 'unit': r['unit'],
+                'required':  r['qty_needed'],
+                'stock':     r['stock'],
+                'locked':    r['locked'],
+                'available': r['available'],
+                'shortage':  abs(r['shortage']),
             }
             for r in reqs if r['is_short']
         ]
 
         if shortages:
             return Response(
-                {'detail': 'Stok material tidak mencukupi.', 'shortages': shortages},
+                {'detail': 'Stok material tidak mencukupi (termasuk stok yang sudah dikunci izin lain).',
+                 'shortages': shortages},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # Kunci stok untuk izin ini
+        for r in reqs:
+            if r['qty_needed'] > 0:
+                StockReservation.objects.update_or_create(
+                    order=order, material_id=r['material_id'],
+                    defaults={'qty_reserved': r['qty_needed']},
+                )
 
         order.status = ProductionOrder.STATUS_CONFIRMED
         order.save()
@@ -111,7 +123,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
     def requirements(self, request, pk=None):
         order = self.get_object()
         items = order.items.prefetch_related('tyre_spec__bom_items__material').all()
-        reqs = aggregate_requirements(items)
+        reqs  = aggregate_requirements(items, exclude_order_id=order.pk)
         return Response({'requirements': reqs})
 
     @action(detail=True, methods=['post'], url_path='start')
@@ -127,14 +139,23 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='done')
     def done(self, request, pk=None):
+        from .models import StockReservation
         order = self.get_object()
         if order.status not in [ProductionOrder.STATUS_IN_PROGRESS, ProductionOrder.STATUS_RESULT_SENT]:
             return Response({'detail': 'Order harus IN_PROGRESS atau RESULT_SENT sebelum diselesaikan.'}, status=400)
         order.status = ProductionOrder.STATUS_DONE
         order.save()
+        # Lepas semua sisa reservation (seharusnya sudah 0, tapi bersihkan jika ada)
+        StockReservation.objects.filter(order=order).delete()
         log(request.user, AuditLog.ACTION_STATUS, 'ProductionOrder', order.pk,
             order.number, request=request, detail={'status': 'DONE'})
         return Response(ProductionOrderSerializer(order).data)
+
+    def perform_destroy(self, instance):
+        from .models import StockReservation
+        # Hapus reservation sebelum menghapus order
+        StockReservation.objects.filter(order=instance).delete()
+        instance.delete()
 
     # ── Material Shipments ────────────────────────────────────────────────────
 
@@ -148,7 +169,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
         # POST — hanya admin, manager, atau inventory
         from accounts.permissions import get_role
-        if get_role(request.user) not in ('admin', 'manager'):
+        if get_role(request.user) not in ('admin', 'purchasing'):
             return Response({'detail': 'Tidak punya izin untuk mengirim material.'}, status=status.HTTP_403_FORBIDDEN)
 
         if order.status not in [ProductionOrder.STATUS_CONFIRMED, ProductionOrder.STATUS_MAT_SENT]:
@@ -158,10 +179,22 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         ser.is_valid(raise_exception=True)
         shipment = ser.save(order=order)
 
-        # Deduct warehouse stock for each entry
+        # Deduct warehouse stock & release reservation proportionally
         from specification.models import Material as MatModel
+        from .models import StockReservation
+        from decimal import Decimal
         for e in shipment.entries.all():
             MatModel.objects.filter(pk=e.material_id).update(stock=F('stock') - e.qty)
+            try:
+                res = StockReservation.objects.get(order=order, material_id=e.material_id)
+                new_qty = float(res.qty_reserved) - float(e.qty)
+                if new_qty <= 0:
+                    res.delete()
+                else:
+                    res.qty_reserved = Decimal(str(round(new_qty, 2)))
+                    res.save()
+            except StockReservation.DoesNotExist:
+                pass
 
         order.refresh_from_db()
         return Response({
@@ -172,7 +205,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='receive-material')
     def receive_material(self, request, pk=None):
         from accounts.permissions import get_role
-        if get_role(request.user) not in ('admin', 'manager', 'operator'):
+        if get_role(request.user) not in ('admin', 'purchasing', 'operator'):
             return Response({'detail': 'Tidak punya izin untuk konfirmasi penerimaan material.'}, status=status.HTTP_403_FORBIDDEN)
 
         order = self.get_object()
@@ -231,7 +264,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
         # POST — hanya admin, manager, atau operator
         from accounts.permissions import get_role
-        if get_role(request.user) not in ('admin', 'manager', 'operator'):
+        if get_role(request.user) not in ('admin', 'purchasing', 'operator'):
             return Response({'detail': 'Tidak punya izin untuk mengirim hasil produksi.'}, status=status.HTTP_403_FORBIDDEN)
 
         if order.status not in [ProductionOrder.STATUS_IN_PROGRESS, ProductionOrder.STATUS_RESULT_SENT]:
@@ -282,6 +315,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         result = [
             {
                 'material_id': m.id, 'kode': m.kode, 'name': m.name, 'unit': m.unit,
+                'safety_stock': float(m.safety_stock),
                 'received': received_map.get(m.id, 0),
                 'used': used_map.get(m.id, 0),
                 'balance': round(received_map.get(m.id, 0) - used_map.get(m.id, 0), 2),
@@ -289,6 +323,61 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             for m in MatModel.objects.all()
         ]
         return Response(result)
+
+    @action(detail=False, methods=['get'], url_path='purchasing-alerts')
+    def purchasing_alerts(self, request):
+        from .models import MaterialShipmentEntry, DailyUsageEntry
+        from django.db.models import Sum, F
+        from specification.models import Material as MatModel
+
+        # 1. Low warehouse stock
+        low_warehouse = []
+        for m in MatModel.objects.filter(safety_stock__gt=0, stock__lt=F('safety_stock')).order_by('kode'):
+            ss = float(m.safety_stock)
+            st = float(m.stock)
+            low_warehouse.append({
+                'id': m.id, 'kode': m.kode, 'name': m.name, 'unit': m.unit,
+                'stock': st, 'safety_stock': ss,
+                'pct': round(st / ss * 100, 1) if ss > 0 else 100,
+                'level': 'critical' if st < ss * 0.5 else 'low',
+            })
+
+        # 2. Low production stock
+        received_map = {
+            r['material']: float(r['total'])
+            for r in MaterialShipmentEntry.objects.filter(shipment__confirmed=True)
+                .values('material').annotate(total=Sum('qty'))
+        }
+        used_map = {
+            r['material']: float(r['total'])
+            for r in DailyUsageEntry.objects.values('material').annotate(total=Sum('qty'))
+        }
+        low_prod = []
+        for m in MatModel.objects.filter(safety_stock__gt=0).order_by('kode'):
+            balance = round(received_map.get(m.id, 0) - used_map.get(m.id, 0), 2)
+            ss = float(m.safety_stock)
+            if balance <= ss:
+                low_prod.append({
+                    'id': m.id, 'kode': m.kode, 'name': m.name, 'unit': m.unit,
+                    'balance': balance, 'safety_stock': ss,
+                    'level': 'critical' if balance <= 0 else 'low',
+                })
+
+        # 3. Active izin produksi
+        active_statuses = [
+            ProductionOrder.STATUS_CONFIRMED,
+            ProductionOrder.STATUS_MAT_SENT,
+            ProductionOrder.STATUS_IN_PROGRESS,
+        ]
+        active_count = ProductionOrder.objects.filter(status__in=active_statuses).count()
+        draft_count = ProductionOrder.objects.filter(status=ProductionOrder.STATUS_DRAFT).count()
+
+        return Response({
+            'low_warehouse_stock': low_warehouse,
+            'low_prod_stock': low_prod,
+            'active_orders_count': active_count,
+            'draft_orders_count': draft_count,
+        })
 
     @action(detail=False, methods=['get'], url_path='pending-shipments')
     def pending_shipments(self, request):
@@ -457,6 +546,94 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             'lead_time_days': lead_time,
             'service_level': '95%',
             'suggestions': results,
+        })
+
+    # ── Analytics ─────────────────────────────────────────────────────────────
+
+    @action(detail=False, methods=['get'], url_path='analytics')
+    def analytics(self, request):
+        from datetime import date, timedelta
+        from django.db.models import Sum, Count
+        from .models import DailyUsageEntry, TyreDeliveryEntry
+
+        today = date.today()
+
+        # 1. Pemakaian material per minggu (8 minggu terakhir)
+        usage_weekly = []
+        for i in range(7, -1, -1):
+            week_end   = today - timedelta(weeks=i)
+            week_start = week_end - timedelta(days=6)
+            total = DailyUsageEntry.objects.filter(
+                daily_usage__date__gte=week_start,
+                daily_usage__date__lte=week_end,
+            ).aggregate(t=Sum('qty'))['t'] or 0
+            usage_weekly.append({
+                'label':      f"{week_start.day} {week_start.strftime('%b')}",
+                'week_start': str(week_start),
+                'total_qty':  round(float(total), 2),
+            })
+
+        # 2. Produksi ban per bulan (6 bulan terakhir)
+        import calendar
+        production_monthly = []
+        for i in range(5, -1, -1):
+            year  = today.year
+            month = today.month - i
+            while month <= 0:
+                month += 12
+                year  -= 1
+            total = TyreDeliveryEntry.objects.filter(
+                delivery__date__year=year,
+                delivery__date__month=month,
+            ).aggregate(t=Sum('qty_actual'))['t'] or 0
+            production_monthly.append({
+                'label':      f"{calendar.month_abbr[month]} {year}",
+                'year':       year,
+                'month':      month,
+                'total_tyre': int(total),
+            })
+
+        # 3. Top 10 material paling banyak dipakai (30 hari terakhir)
+        cutoff = today - timedelta(days=30)
+        top_materials = list(
+            DailyUsageEntry.objects
+            .filter(daily_usage__date__gte=cutoff)
+            .values('material__kode', 'material__name', 'material__unit')
+            .annotate(total_qty=Sum('qty'))
+            .order_by('-total_qty')[:10]
+        )
+        top_materials = [
+            {
+                'kode':      r['material__kode'],
+                'name':      r['material__name'],
+                'unit':      r['material__unit'],
+                'total_qty': round(float(r['total_qty']), 2),
+            }
+            for r in top_materials
+        ]
+
+        # 4. Ringkasan status order
+        status_counts = dict(
+            ProductionOrder.objects.values_list('status').annotate(c=Count('id'))
+        )
+        STATUS_LABELS = {
+            'DRAFT': 'Draft', 'CONFIRMED': 'Dikonfirmasi',
+            'MAT_SENT': 'Material Terkirim', 'IN_PROGRESS': 'Produksi',
+            'RESULT_SENT': 'Hasil Terkirim', 'DONE': 'Selesai',
+        }
+        order_summary = [
+            {'status': s, 'label': STATUS_LABELS.get(s, s), 'count': status_counts.get(s, 0)}
+            for s in STATUS_LABELS
+        ]
+
+        return Response({
+            'usage_weekly':        usage_weekly,
+            'production_monthly':  production_monthly,
+            'top_materials':       top_materials,
+            'order_summary':       order_summary,
+            'total_orders':        ProductionOrder.objects.count(),
+            'total_tyre_produced': int(TyreDeliveryEntry.objects.aggregate(t=Sum('qty_actual'))['t'] or 0),
+            'period_days':         30,
         })
 
     # ── Progress summary ──────────────────────────────────────────────────────

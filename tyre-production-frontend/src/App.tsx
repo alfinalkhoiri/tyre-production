@@ -60,19 +60,19 @@ export default function App() {
             </ProtectedRoute>
           } />
 
-          {/* GUDANG: admin + manager */}
+          {/* GUDANG: admin + purchasing */}
           <Route path="stok" element={
-            <ProtectedRoute allowedRoles={['admin', 'manager']}>
+            <ProtectedRoute allowedRoles={['admin', 'purchasing']}>
               <Suspense fallback={<PageLoader />}><StokPage /></Suspense>
             </ProtectedRoute>
           } />
           <Route path="izin" element={
-            <ProtectedRoute allowedRoles={['admin', 'manager']}>
+            <ProtectedRoute allowedRoles={['admin', 'purchasing']}>
               <Suspense fallback={<PageLoader />}><IzinPage /></Suspense>
             </ProtectedRoute>
           } />
           <Route path="terima" element={
-            <ProtectedRoute allowedRoles={['admin', 'manager']}>
+            <ProtectedRoute allowedRoles={['admin', 'purchasing']}>
               <Suspense fallback={<PageLoader />}><TerimaHasil /></Suspense>
             </ProtectedRoute>
           } />

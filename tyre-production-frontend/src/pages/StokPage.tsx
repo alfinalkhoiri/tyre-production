@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { getMaterials, updateMaterial } from '@/api/spec'
 import { getTransactions, createTransaction } from '@/api/inventory'
@@ -69,7 +69,9 @@ function CategoryStokSection({ cat, icon, materials }: { cat: string; icon: stri
               <th>Kode</th>
               <th>Nama Material</th>
               <th>Unit</th>
-              <th style={{ textAlign: 'right' }}>Stok</th>
+              <th style={{ textAlign: 'right' }}>Stok Gudang</th>
+              <th style={{ textAlign: 'right' }}>Dikunci</th>
+              <th style={{ textAlign: 'right' }}>Tersedia</th>
               <th style={{ textAlign: 'right' }}>Safety</th>
               <th>Status</th>
               <th style={{ minWidth: '110px' }}>Level</th>
@@ -77,27 +79,37 @@ function CategoryStokSection({ cat, icon, materials }: { cat: string; icon: stri
           </thead>
           <tbody>
             {materials.map(m => {
-              const stock = parseFloat(m.stock)
-              const safety = parseFloat(m.safety_stock)
-              const pct = safety > 0 ? Math.min(100, (stock / safety) * 100) : 100
-              const status = stock >= safety ? 'AMAN' : stock >= safety * 0.5 ? 'RENDAH' : 'KRITIS'
-              const chipCls = status === 'AMAN' ? 'chip-success' : status === 'RENDAH' ? 'chip-warning' : 'chip-danger'
-              const barColor = status === 'AMAN' ? 'var(--color-accent-success)' : status === 'RENDAH' ? 'var(--color-accent-warning)' : 'var(--color-accent-danger)'
+              const stock     = parseFloat(m.stock)
+              const locked    = parseFloat(m.locked_qty ?? '0')
+              const available = stock - locked
+              const safety    = parseFloat(m.safety_stock)
+              const pct       = safety > 0 ? Math.min(100, (available / safety) * 100) : 100
+              const status    = available >= safety ? 'AMAN' : available >= safety * 0.5 ? 'RENDAH' : 'KRITIS'
+              const chipCls   = status === 'AMAN' ? 'chip-success' : status === 'RENDAH' ? 'chip-warning' : 'chip-danger'
+              const barColor  = status === 'AMAN' ? 'var(--color-accent-success)' : status === 'RENDAH' ? 'var(--color-accent-warning)' : 'var(--color-accent-danger)'
               return (
-                <tr key={m.id}>
+                <tr key={m.id} className={status === 'KRITIS' ? 'row-danger' : status === 'RENDAH' ? 'row-warning' : ''}>
                   <td style={{ fontWeight: 600 }}>{m.kode}</td>
                   <td style={{ color: 'var(--color-text-secondary)' }}>{m.name}</td>
                   <td><span className="chip chip-neutral">{m.unit}</span></td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, color: stock < 0 ? 'var(--color-text-danger)' : undefined }}>
-                    {formatNum(stock)}
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatNum(stock)}</td>
+                  <td style={{ textAlign: 'right', color: locked > 0 ? 'var(--color-text-warning)' : 'var(--color-text-secondary)', fontWeight: locked > 0 ? 600 : 400 }}>
+                    {locked > 0 ? (
+                      <span title="Dikunci untuk izin produksi yang aktif">🔒 {formatNum(locked)}</span>
+                    ) : (
+                      <span style={{ opacity: 0.4 }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, color: available < 0 ? 'var(--color-text-danger)' : 'var(--color-text-success)' }}>
+                    {formatNum(available)}
                   </td>
                   <td style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>{formatNum(safety)}</td>
                   <td><span className={`chip ${chipCls}`}>{status}</span></td>
                   <td>
-                    <div className="progress-track">
+                    <div className="progress-track" style={{ position: 'relative' }}>
                       <div style={{ background: barColor, height: '100%', borderRadius: '3px', width: `${pct}%`, transition: 'width 0.3s' }} />
                     </div>
-                    <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>{pct.toFixed(0)}%</div>
+                    <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>{pct.toFixed(0)}% tersedia</div>
                   </td>
                 </tr>
               )
@@ -419,7 +431,7 @@ function SafetyStockTab() {
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">Lead Time Supplier</label>
           <div className="filter-pills">
-            {[3, 7, 14].map(d => (
+            {[1, 3, 7, 14].map(d => (
               <button key={d} className={`filter-pill ${leadTime === d ? 'active' : ''}`} onClick={() => setLeadTime(d)}>
                 {d} hari
               </button>

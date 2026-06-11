@@ -13,6 +13,7 @@ export interface Material {
   unit: string
   stock: string
   safety_stock: string
+  locked_qty: string
   roll_length: string
 }
 
@@ -92,9 +93,29 @@ export interface ProdStockItem {
   kode: string
   name: string
   unit: string
+  safety_stock: number
   received: number
   used: number
   balance: number
+}
+
+export interface StockAlertItem {
+  id: number
+  kode: string
+  name: string
+  unit: string
+  stock?: number
+  balance?: number
+  safety_stock: number
+  pct?: number
+  level: 'low' | 'critical'
+}
+
+export interface PurchasingAlerts {
+  low_warehouse_stock: StockAlertItem[]
+  low_prod_stock: StockAlertItem[]
+  active_orders_count: number
+  draft_orders_count: number
 }
 
 export interface TyreDeliveryEntry {
@@ -128,6 +149,8 @@ export interface MaterialRequirement {
   unit: string
   qty_needed: number
   stock: number
+  locked: number
+  available: number
   shortage: number
   is_short: boolean
 }
@@ -172,34 +195,30 @@ export interface DailyTrend {
   entry_count: number
 }
 
-export interface ForecastPrediction {
-  date: string
-  shift: 1 | 2 | 3
-  predicted_qty: number
-  lower_bound: number
-  upper_bound: number
-}
-
-export interface ForecastResponse {
+export interface EstimateItem {
   material_id: number
-  material_kode: string
-  material_name: string
+  kode: string
+  name: string
   unit: string
-  forecast_days: number
-  predictions: ForecastPrediction[]
+  current_stock: number
+  safety_stock: number
+  adc: number
+  adc_7: number
+  adc_14: number
+  adc_30: number
+  predicted_daily: number
+  predicted_total: number
+  days_remaining: number | null
+  projected_stock: number
+  status: 'aman' | 'perlu_pesan'
+  suggested_order: number
 }
 
-export interface ModelStatus {
-  trained_materials: number[]
-  feature_cols: string[]
-  metrics: Record<string, {
-    material_id: number
-    material_kode: string
-    n_samples: number
-    mae_cv: number
-    mae_train: number
-    r2_train: number
-  }>
+export interface EstimateResponse {
+  horizon: number
+  total: number
+  perlu_pesan: number
+  estimates: EstimateItem[]
 }
 
 export interface YieldMaterial {
@@ -249,4 +268,40 @@ export interface SafetySuggestionsResponse {
 export interface PendingCounts {
   pending_shipments: number
   result_sent: number
+}
+
+export interface AnalyticsWeekly {
+  label: string
+  week_start: string
+  total_qty: number
+}
+
+export interface AnalyticsMonthly {
+  label: string
+  year: number
+  month: number
+  total_tyre: number
+}
+
+export interface AnalyticsTopMaterial {
+  kode: string
+  name: string
+  unit: string
+  total_qty: number
+}
+
+export interface AnalyticsOrderSummary {
+  status: string
+  label: string
+  count: number
+}
+
+export interface AnalyticsData {
+  usage_weekly: AnalyticsWeekly[]
+  production_monthly: AnalyticsMonthly[]
+  top_materials: AnalyticsTopMaterial[]
+  order_summary: AnalyticsOrderSummary[]
+  total_orders: number
+  total_tyre_produced: number
+  period_days: number
 }

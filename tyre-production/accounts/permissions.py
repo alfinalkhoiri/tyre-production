@@ -16,65 +16,65 @@ class IsAdminRole(BasePermission):
         return get_role(request.user) == 'admin'
 
 
-class IsAdminOrManager(BasePermission):
-    """Admin or manager role."""
-    message = 'Hanya admin atau manager yang dapat mengakses fitur ini.'
+class IsAdminOrPurchasing(BasePermission):
+    """Admin or purchasing role."""
+    message = 'Hanya admin atau admin purchasing yang dapat mengakses fitur ini.'
 
     def has_permission(self, request, view):
-        return get_role(request.user) in ('admin', 'manager')
+        return get_role(request.user) in ('admin', 'purchasing')
 
 
-class IsAdminOrManagerOrOperator(BasePermission):
-    """Admin, manager, or operator role."""
-    message = 'Hanya admin, manager, atau operator yang dapat mengakses fitur ini.'
+class IsAdminOrPurchasingOrOperator(BasePermission):
+    """Admin, purchasing, or operator role."""
+    message = 'Hanya admin, admin purchasing, atau operator yang dapat mengakses fitur ini.'
 
     def has_permission(self, request, view):
-        return get_role(request.user) in ('admin', 'manager', 'operator')
+        return get_role(request.user) in ('admin', 'purchasing', 'operator')
 
 
 class SpecificationWritePermission(BasePermission):
-    """Read: any authenticated user. Write: admin or manager."""
-    message = 'Hanya admin atau manager yang dapat mengubah data ini.'
+    """Read: any authenticated user. Write: admin or purchasing."""
+    message = 'Hanya admin atau admin purchasing yang dapat mengubah data ini.'
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
         if request.method in SAFE_METHODS:
             return True
-        return get_role(request.user) in ('admin', 'manager')
+        return get_role(request.user) in ('admin', 'purchasing')
 
 
 class InventoryWritePermission(BasePermission):
-    """Read: any authenticated user. Write: admin or manager."""
-    message = 'Hanya admin atau manager yang dapat mengubah transaksi stok.'
+    """Read: any authenticated user. Write: admin or purchasing."""
+    message = 'Hanya admin atau admin purchasing yang dapat mengubah transaksi stok.'
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
         if request.method in SAFE_METHODS:
             return True
-        return get_role(request.user) in ('admin', 'manager')
+        return get_role(request.user) in ('admin', 'purchasing')
 
 
 class ProductionOrderWritePermission(BasePermission):
-    """Read: any authenticated user. Write: admin or manager."""
-    message = 'Hanya admin atau manager yang dapat mengubah production order.'
+    """Read: any authenticated user. Write: admin or purchasing."""
+    message = 'Hanya admin atau admin purchasing yang dapat mengubah production order.'
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
         if request.method in SAFE_METHODS:
             return True
-        return get_role(request.user) in ('admin', 'manager')
+        return get_role(request.user) in ('admin', 'purchasing')
 
 
 class DailyUsageWritePermission(BasePermission):
-    """Read: any authenticated user. Write: admin, manager, or operator."""
-    message = 'Hanya admin, manager, atau operator yang dapat mengubah daily usage.'
+    """Read: any authenticated user. Write: admin, purchasing, or operator."""
+    message = 'Hanya admin, admin purchasing, atau operator yang dapat mengubah daily usage.'
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
         if request.method in SAFE_METHODS:
             return True
-        return get_role(request.user) in ('admin', 'manager', 'operator')
+        return get_role(request.user) in ('admin', 'purchasing', 'operator')

@@ -75,3 +75,9 @@ export const getSafetySuggestions = (params?: { days?: number; lead_time?: numbe
 
 export const getPendingCounts = () =>
   api.get<import('@/types').PendingCounts>('/production/orders/pending-counts/').then(r => r.data)
+
+export const getPurchasingAlerts = () =>
+  api.get<import('@/types').PurchasingAlerts>('/production/orders/purchasing-alerts/').then(r => r.data)
+
+export const getAnalytics = () =>
+  api.get<import('@/types').AnalyticsData>('/production/orders/analytics/').then(r => r.data)

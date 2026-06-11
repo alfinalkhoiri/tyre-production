@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState } from 'react'
 import axios from 'axios'
 
-export type Role = 'admin' | 'manager' | 'operator' | 'viewer'
+export type Role = 'admin' | 'purchasing' | 'operator' | 'viewer'
 
 export interface AuthUser {
   id: number
@@ -19,17 +19,17 @@ export function getUIGroup(role: Role | null): 'GUDANG' | 'PRODUKSI' {
 }
 
 export const ROLE_LABEL: Record<Role, string> = {
-  admin:    'Admin',
-  manager:  'Manager',
-  operator: 'Operator',
-  viewer:   'Viewer',
+  admin:      'Admin',
+  purchasing: 'Admin Purchasing',
+  operator:   'Operator Gudang',
+  viewer:     'Manajemen',
 }
 
 export const ROLE_COLOR: Record<Role, { bg: string; border: string; text: string }> = {
-  admin:    { bg: '#6d28d920', border: '#7c3aed40', text: '#a78bfa' },
-  manager:  { bg: '#1d4ed820', border: '#3b82f640', text: '#60a5fa' },
-  operator: { bg: '#15803d20', border: '#22c55e40', text: '#4ade80' },
-  viewer:   { bg: '#37415120', border: '#6b728040', text: '#9ca3af' },
+  admin:      { bg: '#6d28d920', border: '#7c3aed40', text: '#a78bfa' },
+  purchasing: { bg: '#1d4ed820', border: '#3b82f640', text: '#60a5fa' },
+  operator:   { bg: '#15803d20', border: '#22c55e40', text: '#4ade80' },
+  viewer:     { bg: '#37415120', border: '#6b728040', text: '#9ca3af' },
 }
 
 interface AuthContextType {

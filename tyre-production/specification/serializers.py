@@ -3,9 +3,12 @@ from .models import Material, TyreSpec, BOMItem
 
 
 class MaterialSerializer(serializers.ModelSerializer):
+    locked_qty = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True, default=0)
+
     class Meta:
         model = Material
-        fields = '__all__'
+        fields = ('id', 'kode', 'name', 'category', 'unit', 'roll_length',
+                  'stock', 'safety_stock', 'locked_qty')
 
 
 class BOMItemSerializer(serializers.ModelSerializer):

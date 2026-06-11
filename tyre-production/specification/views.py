@@ -1,4 +1,5 @@
-from django.db.models import F
+from django.db.models import F, OuterRef, Subquery, DecimalField, Sum, Value
+from django.db.models.functions import Coalesce
 from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -10,6 +11,26 @@ from .models import Material, TyreSpec, BOMItem
 from .serializers import (
     MaterialSerializer, TyreSpecSerializer, TyreSpecListSerializer, BOMItemSerializer
 )
+
+_LOCK_STATUSES = ['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS']
+
+
+def _annotate_locked(qs):
+    """Tambahkan annotasi locked_qty (reservasi aktif) ke queryset Material."""
+    from production.models import StockReservation
+    locked_subq = (
+        StockReservation.objects
+        .filter(material=OuterRef('pk'), order__status__in=_LOCK_STATUSES)
+        .values('material')
+        .annotate(total=Sum('qty_reserved'))
+        .values('total')
+    )
+    return qs.annotate(
+        locked_qty=Coalesce(
+            Subquery(locked_subq, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            Value(0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+        )
+    )
 
 
 @extend_schema_view(
@@ -25,7 +46,7 @@ from .serializers import (
     destroy=extend_schema(summary='Hapus material', tags=['Specification']),
 )
 class MaterialViewSet(viewsets.ModelViewSet):
-    queryset = Material.objects.all()
+    queryset = _annotate_locked(Material.objects.all())
     serializer_class = MaterialSerializer
     permission_classes = [SpecificationWritePermission]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

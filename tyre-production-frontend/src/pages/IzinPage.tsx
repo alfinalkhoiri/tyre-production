@@ -601,13 +601,28 @@ function PermitCard({ order }: { order: ProductionOrder }) {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 6, textTransform: 'uppercase' }}>Kebutuhan Material</div>
                   <table className="tbl">
-                    <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Butuh</th><th style={{ textAlign: 'right' }}>Stok Gudang</th><th>Status</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>Material</th>
+                        <th style={{ textAlign: 'right' }}>Butuh</th>
+                        <th style={{ textAlign: 'right' }}>Stok Gudang</th>
+                        <th style={{ textAlign: 'right' }}>Dikunci</th>
+                        <th style={{ textAlign: 'right' }}>Tersedia</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {requirements.map(r => (
                         <tr key={r.material_id}>
                           <td><strong>{r.name}</strong> <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>{r.kode}</span></td>
                           <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(r.qty_needed)} {r.unit}</td>
-                          <td style={{ textAlign: 'right', color: r.is_short ? 'var(--color-text-danger)' : 'var(--color-text-success)' }}>{fmt(r.stock)}</td>
+                          <td style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>{fmt(r.stock)}</td>
+                          <td style={{ textAlign: 'right', color: (r.locked ?? 0) > 0 ? 'var(--color-text-warning)' : 'var(--color-text-secondary)' }}>
+                            {(r.locked ?? 0) > 0 ? `🔒 ${fmt(r.locked)}` : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: r.is_short ? 'var(--color-text-danger)' : 'var(--color-text-success)' }}>
+                            {fmt(r.available ?? r.stock)}
+                          </td>
                           <td>{r.is_short ? <span className="chip chip-danger" style={{ fontSize: 10 }}>Kurang {fmt(Math.abs(r.shortage))}</span> : <span className="chip chip-success" style={{ fontSize: 10 }}>Cukup</span>}</td>
                         </tr>
                       ))}
