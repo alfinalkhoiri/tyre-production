@@ -4,17 +4,16 @@ Antarmuka web untuk sistem manajemen produksi ban. Dibangun dengan React + TypeS
 
 ## Tech Stack
 
-| Komponen | Teknologi |
-|---|---|
-| Framework | React 18 + TypeScript |
-| Build Tool | Vite 4 |
-| Styling | Tailwind CSS + CSS Variables |
-| HTTP Client | Axios (dengan interceptor JWT auto-refresh) |
-| Server State | TanStack React Query v4 |
-| Routing | React Router v6 |
-| UI Components | Radix UI (Dialog, Toast, Select, Dropdown) |
-| Charts | Recharts |
-| Icons | Lucide React |
+| Komponen      | Teknologi                                   |
+| ------------- | ------------------------------------------- |
+| Framework     | React 18 + TypeScript                       |
+| Build Tool    | Vite 4                                      |
+| Styling       | Tailwind CSS + CSS Variables                |
+| HTTP Client   | Axios (dengan interceptor JWT auto-refresh) |
+| Server State  | TanStack React Query v4                     |
+| Routing       | React Router v6                             |
+| UI Components | Radix UI (Dialog, Toast, Select, Dropdown)  |
+| Icons         | Lucide React                                |
 
 ## Prasyarat
 
@@ -48,68 +47,85 @@ Buat file `.env` di root frontend (opsional untuk dev):
 cp .env.example .env
 ```
 
-| Variable | Keterangan |
-|---|---|
+| Variable            | Keterangan                                                           |
+| ------------------- | -------------------------------------------------------------------- |
 | `VITE_API_BASE_URL` | URL backend untuk production. Kosongkan untuk dev (pakai Vite proxy) |
 
 Contoh `.env.production`:
+
 ```
 VITE_API_BASE_URL=https://api.tyreprod.com
 ```
 
 ## Login
 
-| Username | Password | Role |
-|---|---|---|
-| `admin` | (set via `createsuperuser`) | Admin — full akses |
+| Username | Password                    | Role               |
+| -------- | --------------------------- | ------------------ |
+| `admin`  | (set via `createsuperuser`) | Admin — full akses |
 
 Role baru dibuat oleh admin via halaman Register di sistem.
 
 ## Role & Tampilan
 
-| Role | Halaman yang Bisa Diakses |
-|---|---|
-| `admin` | Semua halaman + Audit Log |
-| `manager` | Dashboard, Spesifikasi, Stok Material, Izin Produksi, Terima Hasil, Analitik, Forecast |
-| `operator` | Dashboard, Spesifikasi, Stok Produksi, Material, Kirim Hasil |
-| `viewer` | Dashboard, Spesifikasi, Analitik, Forecast |
+| Role         | Halaman yang Bisa Diakses                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------ |
+| `admin`      | Semua halaman + Audit Log                                                                        |
+| `purchasing` | Dashboard, Spesifikasi, Stok Material, Izin Produksi, Terima Hasil, Analitik, Estimasi Kebutuhan |
+| `operator`   | Dashboard, Spesifikasi, Stok Produksi, Material, Kirim Hasil, Analitik                           |
+| `viewer`     | Dashboard, Spesifikasi, Analitik, Estimasi Kebutuhan                                             |
 
 ## Fitur Utama
 
 ### Dashboard
+
 - Ringkasan metrik sesuai role (Gudang vs Produksi)
 - Alert stok kritis dan material minus
 - Tabel order aktif dan status real-time
 
-### Izin Produksi (Manager)
+### Izin Produksi (Purchasing)
+
 - Buat production order dengan item tyre spec
 - Alur status: Draft → Konfirmasi → Kirim Material → Produksi → Selesai
-- Cek ketersediaan stok otomatis saat konfirmasi
+- Cek ketersediaan stok otomatis saat konfirmasi — stok dikunci per order
 - Kirim material ke lantai produksi
 - Pantau progress material dan tyre per order
 - Analisis yield (expected vs actual material usage)
 
-### Stok Material (Manager)
-- Tampilan stok per kategori dengan progress bar
+### Stok Material (Purchasing)
+
+- Tampilan stok per kategori: Stok Gudang, Dikunci (🔒), Tersedia
 - Penerimaan material (PO) batch — semua material sekaligus
 - Riwayat transaksi dengan pagination
-- Saran safety stock dinamis berbasis data historis (formula statistik)
+- Saran safety stock dinamis berbasis data historis
 
 ### Produksi — Material & Pengiriman (Operator)
+
 - Terima material yang dikirim gudang
 - Input pemakaian harian per shift
 - Kirim hasil produksi (tyre) ke gudang
 
 ### Spesifikasi
+
 - CRUD tyre spec (ukuran, model, varian)
 - Bill of Materials per spec dengan kalkulasi roll
 
-### Analitik & Forecast
-- Grafik tren pemakaian material harian
-- Forecast kebutuhan material dengan ML (RandomForest)
-- Status model ML
+### Analitik
+
+- Grafik pemakaian material mingguan (8 minggu terakhir)
+- Grafik produksi ban bulanan (6 bulan terakhir)
+- Top 10 material paling banyak dipakai (30 hari terakhir)
+- Ringkasan status semua izin produksi
+
+### Estimasi Kebutuhan
+
+- Estimasi kebutuhan material berbasis ADC (Average Daily Consumption)
+- Rata-rata tertimbang: 50% × 7 hari + 30% × 14 hari + 20% × 30 hari
+- Status "Perlu Pesan" jika proyeksi stok tidak mencukupi dalam horizon
+- Filter horizon: 7, 14, atau 30 hari ke depan
+- Saran jumlah pemesanan per material
 
 ### Audit Log (Admin)
+
 - Riwayat semua aktivitas: login, logout, ubah order, transaksi stok
 - Filter by aksi, model, dan search
 - Pagination
@@ -125,7 +141,6 @@ src/
 │   ├── spec.ts
 │   ├── inventory.ts
 │   ├── production.ts
-│   ├── analytics.ts
 │   └── ml.ts
 ├── components/
 │   ├── layout/       # AppLayout, Header, TabBar
@@ -162,6 +177,7 @@ npm run build
 ```
 
 Output berada di folder `dist/`. Deploy sebagai static files ke:
+
 - Nginx / Apache (serve `dist/`, proxy `/api` ke backend)
 - Vercel / Netlify (set `VITE_API_BASE_URL` di environment variable)
 - Atau serve dari Django melalui WhiteNoise (copy `dist/` ke `staticfiles/`)
@@ -193,13 +209,13 @@ server {
 
 ## Scripts
 
-| Command | Keterangan |
-|---|---|
-| `npm run dev` | Dev server dengan hot-reload |
-| `npm run build` | Production build ke `dist/` |
+| Command           | Keterangan                     |
+| ----------------- | ------------------------------ |
+| `npm run dev`     | Dev server dengan hot-reload   |
+| `npm run build`   | Production build ke `dist/`    |
 | `npm run preview` | Preview production build lokal |
-| `npm run lint` | ESLint check |
+| `npm run lint`    | ESLint check                   |
 
 ## Lisensi
 
-Proyek tugas kuliah — President University, Advanced Database.
+Proyek tugas kuliah — President University

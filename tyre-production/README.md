@@ -4,15 +4,15 @@ Sistem Manajemen Produksi Ban berbasis Django REST Framework. Mengelola siklus p
 
 ## Tech Stack
 
-| Komponen     | Teknologi                                   |
-| ------------ | ------------------------------------------- |
-| Framework    | Django 6.0.5 + Django REST Framework 3.17   |
-| Auth         | JWT via `djangorestframework-simplejwt`     |
-| Database     | SQLite (dev) / PostgreSQL (production)      |
-| ML           | scikit-learn (RandomForest), pandas, joblib |
-| API Docs     | drf-spectacular (Swagger/ReDoc)             |
-| Static Files | WhiteNoise                                  |
-| Server       | Gunicorn (production)                       |
+| Komponen     | Teknologi                                 |
+| ------------ | ----------------------------------------- |
+| Framework    | Django 6.0.5 + Django REST Framework 3.17 |
+| Auth         | JWT via `djangorestframework-simplejwt`   |
+| Database     | SQLite (dev) / PostgreSQL (production)    |
+| Estimasi     | pandas (ADC — Average Daily Consumption)  |
+| API Docs     | drf-spectacular (Swagger/ReDoc)           |
+| Static Files | WhiteNoise                                |
+| Server       | Gunicorn (production)                     |
 
 ## Prasyarat
 
@@ -67,12 +67,12 @@ Server berjalan di: `http://localhost:8000`
 
 ## Role & Akses
 
-| Role       | Deskripsi         | Akses                                              |
-| ---------- | ----------------- | -------------------------------------------------- |
-| `admin`    | Administrator     | Full CRUD semua endpoint + audit log               |
-| `manager`  | Manajer / Gudang  | Kelola order produksi, material, stok, spesifikasi |
-| `operator` | Operator Produksi | Daily usage, terima material, kirim hasil          |
-| `viewer`   | Read-only         | Hanya GET di semua endpoint                        |
+| Role         | Deskripsi          | Akses                                              |
+| ------------ | ------------------ | -------------------------------------------------- |
+| `admin`      | Administrator      | Full CRUD semua endpoint + audit log               |
+| `purchasing` | Admin Purchasing   | Kelola order produksi, material, stok, spesifikasi |
+| `operator`   | Operator Produksi  | Daily usage, terima material, kirim hasil          |
+| `viewer`     | Read-only          | Hanya GET di semua endpoint                        |
 
 ## API Endpoints
 
@@ -92,47 +92,57 @@ Server berjalan di: `http://localhost:8000`
 
 ### Spesifikasi (`/api/spec/`)
 
-| Method   | Endpoint                | Write Access   | Keterangan             |
-| -------- | ----------------------- | -------------- | ---------------------- |
-| GET/POST | `/materials/`           | Admin, Manager | CRUD material          |
-| GET      | `/materials/low-stock/` | Auth           | Material stok kritis   |
-| GET/POST | `/tyre-specs/`          | Admin, Manager | CRUD spesifikasi tyre  |
-| GET/POST | `/bom-items/`           | Admin, Manager | CRUD Bill of Materials |
+| Method   | Endpoint                | Write Access          | Keterangan             |
+| -------- | ----------------------- | --------------------- | ---------------------- |
+| GET/POST | `/materials/`           | Admin, Purchasing     | CRUD material          |
+| GET      | `/materials/low-stock/` | Auth                  | Material stok kritis   |
+| GET/POST | `/tyre-specs/`          | Admin, Purchasing     | CRUD spesifikasi tyre  |
+| GET/POST | `/bom-items/`           | Admin, Purchasing     | CRUD Bill of Materials |
 
 ### Inventori (`/api/inventory/`)
 
-| Method   | Endpoint                          | Write Access   | Keterangan               |
-| -------- | --------------------------------- | -------------- | ------------------------ |
-| GET/POST | `/transactions/`                  | Admin, Manager | Transaksi stok (IN/AUTO) |
-| GET      | `/transactions/by-material/{id}/` | Auth           | Riwayat per material     |
+| Method   | Endpoint                          | Write Access      | Keterangan               |
+| -------- | --------------------------------- | ----------------- | ------------------------ |
+| GET/POST | `/transactions/`                  | Admin, Purchasing | Transaksi stok (IN/AUTO) |
+| GET      | `/transactions/by-material/{id}/` | Auth              | Riwayat per material     |
 
 ### Produksi (`/api/production/`)
 
-| Method   | Endpoint                         | Write Access             | Keterangan                       |
-| -------- | -------------------------------- | ------------------------ | -------------------------------- |
-| GET/POST | `/orders/`                       | Admin, Manager           | CRUD production order            |
-| POST     | `/orders/{id}/confirm/`          | Admin, Manager           | DRAFT → CONFIRMED                |
-| POST     | `/orders/{id}/start/`            | Admin, Manager           | CONFIRMED → IN_PROGRESS          |
-| POST     | `/orders/{id}/done/`             | Admin, Manager           | IN_PROGRESS → DONE               |
-| GET/POST | `/orders/{id}/shipments/`        | Admin, Manager           | Kirim material ke produksi       |
-| POST     | `/orders/{id}/receive-material/` | Admin, Manager, Operator | Konfirmasi terima material       |
-| GET/POST | `/orders/{id}/deliveries/`       | Admin, Manager, Operator | Kirim hasil produksi             |
-| GET      | `/orders/{id}/progress/`         | Auth                     | Progress material & tyre         |
-| GET      | `/orders/{id}/yield/`            | Auth                     | Analisis yield order             |
-| GET      | `/orders/{id}/requirements/`     | Auth                     | Kebutuhan material               |
-| GET/POST | `/daily-usages/`                 | Admin, Manager, Operator | Pemakaian material harian        |
-| GET      | `/orders/pending-counts/`        | Auth                     | Jumlah pending shipment & result |
-| GET      | `/orders/prod-stock/`            | Auth                     | Stok material di lantai produksi |
-| GET      | `/orders/safety-suggestions/`    | Auth                     | Saran safety stock               |
-| GET      | `/analytics/material-usage/`     | Auth                     | Rekapitulasi pemakaian           |
-| GET      | `/analytics/daily-trend/`        | Auth                     | Tren harian                      |
+| Method   | Endpoint                         | Write Access                  | Keterangan                            |
+| -------- | -------------------------------- | ----------------------------- | ------------------------------------- |
+| GET/POST | `/orders/`                       | Admin, Purchasing             | CRUD production order                 |
+| POST     | `/orders/{id}/confirm/`          | Admin, Purchasing             | DRAFT → CONFIRMED (kunci stok otomatis) |
+| POST     | `/orders/{id}/start/`            | Admin, Purchasing             | CONFIRMED → IN_PROGRESS               |
+| POST     | `/orders/{id}/done/`             | Admin, Purchasing             | IN_PROGRESS → DONE                    |
+| GET/POST | `/orders/{id}/shipments/`        | Admin, Purchasing             | Kirim material ke produksi            |
+| POST     | `/orders/{id}/receive-material/` | Admin, Purchasing, Operator   | Konfirmasi terima material            |
+| GET/POST | `/orders/{id}/deliveries/`       | Admin, Purchasing, Operator   | Kirim hasil produksi                  |
+| GET      | `/orders/{id}/progress/`         | Auth                          | Progress material & tyre              |
+| GET      | `/orders/{id}/yield/`            | Auth                          | Analisis yield order                  |
+| GET      | `/orders/{id}/requirements/`     | Auth                          | Kebutuhan material + stok dikunci     |
+| GET/POST | `/daily-usages/`                 | Admin, Purchasing, Operator   | Pemakaian material harian             |
+| GET      | `/orders/pending-counts/`        | Auth                          | Jumlah pending shipment & result      |
+| GET      | `/orders/prod-stock/`            | Auth                          | Stok material di lantai produksi      |
+| GET      | `/orders/safety-suggestions/`    | Auth                          | Saran safety stock dinamis            |
+| GET      | `/orders/purchasing-alerts/`     | Auth                          | Alert material perlu dipesan          |
+| GET      | `/orders/analytics/`             | Auth                          | Analitik produksi & pemakaian         |
 
-### ML (`/api/ml/`)
+### Estimasi Kebutuhan — ADC (`/api/ml/`)
 
-| Method | Endpoint         | Keterangan                  |
-| ------ | ---------------- | --------------------------- |
-| POST   | `/forecast/`     | Prediksi kebutuhan material |
-| GET    | `/model-status/` | Status model ML terlatih    |
+| Method | Endpoint               | Keterangan                                             |
+| ------ | ---------------------- | ------------------------------------------------------ |
+| GET    | `/forecast/`           | Estimasi kebutuhan semua material (`?horizon=7`)        |
+| GET    | `/forecast/{id}/`      | Estimasi kebutuhan per material                        |
+
+Estimasi berbasis **ADC (Average Daily Consumption)** — rata-rata tertimbang pemakaian 7, 14, dan 30 hari:
+
+```
+adc = 0.5 × adc_7  +  0.3 × adc_14  +  0.2 × adc_30
+```
+
+Status `perlu_pesan` muncul jika:
+- Sisa stok ≤ lead time × ADC (default lead time 7 hari), **atau**
+- Proyeksi stok di akhir horizon < safety stock
 
 ### Dokumentasi API
 
@@ -140,7 +150,15 @@ Server berjalan di: `http://localhost:8000`
 - ReDoc: `http://localhost:8000/api/redoc/`
 - OpenAPI JSON: `http://localhost:8000/api/schema/`
 
-> ⚠️ Docs dilindungi autentikasi saat `DEBUG=False` (production)
+> Docs dilindungi autentikasi saat `DEBUG=False` (production)
+
+## Stok Dikunci (StockReservation)
+
+Saat production order dikonfirmasi, sistem **mengunci stok** material yang dibutuhkan secara otomatis (`StockReservation`). Stok yang dikunci tidak tersedia untuk order lain sampai order selesai atau dibatalkan.
+
+- **Stok Gudang** = total stok fisik
+- **Dikunci** = total reservasi aktif dari order yang sedang berjalan
+- **Tersedia** = Stok Gudang − Dikunci
 
 ## Alur Status Production Order
 
@@ -148,14 +166,22 @@ Server berjalan di: `http://localhost:8000`
 DRAFT → CONFIRMED → MAT_SENT → IN_PROGRESS → RESULT_SENT → DONE
 ```
 
-| Status        | Arti                                |
-| ------------- | ----------------------------------- |
-| `DRAFT`       | Order dibuat, belum dikonfirmasi    |
-| `CONFIRMED`   | Dikonfirmasi, stok mencukupi        |
-| `MAT_SENT`    | Material dikirim ke lantai produksi |
-| `IN_PROGRESS` | Produksi berjalan                   |
-| `RESULT_SENT` | Hasil dikirim ke gudang             |
-| `DONE`        | Order selesai                       |
+| Status        | Arti                                   |
+| ------------- | -------------------------------------- |
+| `DRAFT`       | Order dibuat, belum dikonfirmasi       |
+| `CONFIRMED`   | Dikonfirmasi, stok dikunci             |
+| `MAT_SENT`    | Material dikirim ke lantai produksi    |
+| `IN_PROGRESS` | Produksi berjalan                      |
+| `RESULT_SENT` | Hasil dikirim ke gudang                |
+| `DONE`        | Order selesai, reservasi stok dilepas  |
+
+## Management Commands
+
+| Command                              | Keterangan                                       |
+| ------------------------------------ | ------------------------------------------------ |
+| `python manage.py migrate`           | Jalankan migrasi database                        |
+| `python manage.py createsuperuser`   | Buat akun admin pertama                          |
+| `python manage.py forecast_preview`  | Tampilkan tabel estimasi ADC di terminal         |
 
 ## Deploy ke Production
 
@@ -192,9 +218,8 @@ tyre-production/
 ├── accounts/          # Auth, UserProfile, AuditLog
 ├── config/            # Settings, URLs
 ├── inventory/         # StockTransaction
-├── ml/                # ML forecast
-├── ml_models/         # Model terlatih (.joblib)
-├── production/        # ProductionOrder, DailyUsage, Shipment, Delivery
+├── ml/                # Estimasi ADC (forecast.py, views.py, tests.py)
+├── production/        # ProductionOrder, DailyUsage, Shipment, Delivery, StockReservation
 ├── specification/     # Material, TyreSpec, BOMItem
 ├── requirements/
 │   ├── base.txt       # Shared dependencies
@@ -206,4 +231,4 @@ tyre-production/
 
 ## Lisensi
 
-Proyek tugas kuliah — President University
+Proyek tugas kuliah — President University, Advanced Database.
