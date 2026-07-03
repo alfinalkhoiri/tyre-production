@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
+from accounts.models import UserProfile
 from specification.models import Material, TyreSpec, BOMItem
 from inventory.models import StockTransaction
 from production.models import (
@@ -103,10 +104,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self._clear_all()
-        self._seed_superuser()
+        self._seed_users()
         mat_map = self._seed_materials()
         self._seed_tyre_specs(mat_map)
         self.stdout.write(self.style.SUCCESS('\nSeed data selesai.'))
+        self.stdout.write(f'  Users    : {User.objects.count()}')
         self.stdout.write(f'  Material : {Material.objects.count()}')
         self.stdout.write(f'  TyreSpec : {TyreSpec.objects.count()}')
         self.stdout.write(f'  BOMItem  : {BOMItem.objects.count()}')
@@ -125,12 +127,30 @@ class Command(BaseCommand):
         Material.objects.all().delete()
         self.stdout.write('  [OK] Semua data dihapus')
 
-    def _seed_superuser(self):
-        if not User.objects.filter(username='admin').exists():
-            User.objects.create_superuser('admin', 'admin@tyre.local', 'admin123')
-            self.stdout.write('  [+] Superuser admin dibuat (password: admin123)')
-        else:
-            self.stdout.write('  [=] Superuser admin sudah ada')
+    def _seed_users(self):
+        self.stdout.write('\nMembuat user...')
+        USERS = [
+            # (username, email, password, is_superuser, is_staff, role)
+            ('admin',     'admin@tyre.local',     'admin123',     True,  True,  UserProfile.ROLE_ADMIN),
+            ('purchasing','purchasing@tyre.local', 'purchasing123',False, False, UserProfile.ROLE_PURCHASING),
+            ('operator',  'operator@tyre.local',  'operator123',  False, False, UserProfile.ROLE_OPERATOR),
+            ('viewer',    'viewer@tyre.local',     'viewer123',    False, False, UserProfile.ROLE_VIEWER),
+        ]
+        for username, email, password, is_superuser, is_staff, role in USERS:
+            if User.objects.filter(username=username).exists():
+                user = User.objects.get(username=username)
+                user.set_password(password)
+                user.save()
+                self.stdout.write(f'  [=] {username} sudah ada — password direset')
+            else:
+                user = User.objects.create_user(
+                    username=username, email=email, password=password,
+                    is_superuser=is_superuser, is_staff=is_staff,
+                )
+                self.stdout.write(f'  [+] {username} dibuat (role: {role}, password: {password})')
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            profile.role = role
+            profile.save()
 
     def _seed_materials(self):
         self.stdout.write('\nMenambahkan material...')

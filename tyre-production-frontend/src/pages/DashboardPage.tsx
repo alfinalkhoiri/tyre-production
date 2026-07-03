@@ -3,7 +3,7 @@ import { AlertTriangle, PackageX, ClipboardX } from 'lucide-react'
 import { getMaterials } from '@/api/spec'
 import { getOrders, getProdStock, getPurchasingAlerts } from '@/api/production'
 import { useAuth, getUIGroup } from '@/context/AuthContext'
-import type { PurchasingAlerts } from '@/types'
+import type { PurchasingAlerts, ProductionOrder } from '@/types'
 
 function formatNum(n: number, d = 2) {
   return n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d })
@@ -23,7 +23,7 @@ const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
 
 // ── Purchasing Alert Banner ────────────────────────────────────
 
-function PurchasingAlertBanner({ alerts }: { alerts: PurchasingAlerts }) {
+function PurchasingAlertBanner({ alerts, activeOrders }: { alerts: PurchasingAlerts; activeOrders: ProductionOrder[] }) {
   const critWarehouse  = alerts.low_warehouse_stock.filter(m => m.level === 'critical')
   const lowWarehouse   = alerts.low_warehouse_stock.filter(m => m.level === 'low')
   const critProd       = alerts.low_prod_stock.filter(m => m.level === 'critical')
@@ -46,7 +46,7 @@ function PurchasingAlertBanner({ alerts }: { alerts: PurchasingAlerts }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
               {critWarehouse.map(m => (
                 <span key={m.id} className="chip chip-danger" style={{ fontSize: '11px' }}>
-                  {m.kode} — {m.stock?.toFixed(1)} / {m.safety_stock} {m.unit} ({m.pct?.toFixed(0)}%)
+                  {m.kode} · {m.name} — {m.stock?.toFixed(1)} / {m.safety_stock} {m.unit} ({m.pct?.toFixed(0)}%)
                 </span>
               ))}
             </div>
@@ -63,7 +63,7 @@ function PurchasingAlertBanner({ alerts }: { alerts: PurchasingAlerts }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
               {lowWarehouse.map(m => (
                 <span key={m.id} className="chip chip-warning" style={{ fontSize: '11px' }}>
-                  {m.kode} — {m.stock?.toFixed(1)} / {m.safety_stock} {m.unit} ({m.pct?.toFixed(0)}%)
+                  {m.kode} · {m.name} — {m.stock?.toFixed(1)} / {m.safety_stock} {m.unit} ({m.pct?.toFixed(0)}%)
                 </span>
               ))}
             </div>
@@ -71,17 +71,42 @@ function PurchasingAlertBanner({ alerts }: { alerts: PurchasingAlerts }) {
         </div>
       )}
 
-      {/* Critical production stock */}
-      {critProd.length > 0 && (
+      {/* Critical production stock — no active order */}
+      {critProd.length > 0 && activeOrders.length === 0 && (
         <div className="alert alert-danger">
           <PackageX size={15} />
           <div>
-            <strong>Stok Produksi Kritis!</strong> {critProd.length} material di lantai produksi habis atau minus.{' '}
-            Operator membutuhkan kiriman material segera.
+            <strong>Stok Produksi Kritis!</strong>{' '}
+            {critProd.length} material habis atau minus, namun{' '}
+            <strong>tidak ada izin produksi aktif</strong>.{' '}
+            Buat izin produksi baru sebelum mengirim material.
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
               {critProd.map(m => (
                 <span key={m.id} className="chip chip-danger" style={{ fontSize: '11px' }}>
-                  {m.kode} — sisa {m.balance?.toFixed(1)} {m.unit}
+                  {m.kode} · {m.name} — sisa {m.balance?.toFixed(1)} {m.unit}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Critical production stock — with active orders */}
+      {critProd.length > 0 && activeOrders.length > 0 && (
+        <div className="alert alert-danger">
+          <PackageX size={15} />
+          <div>
+            <strong>Stok Produksi Kritis!</strong>{' '}
+            {critProd.length} material habis atau minus. Segera kirimkan untuk izin aktif:
+            {activeOrders.map(o => (
+              <span key={o.id} className="chip chip-info" style={{ fontSize: '11px', marginLeft: '4px' }}>
+                {o.number}
+              </span>
+            ))}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+              {critProd.map(m => (
+                <span key={m.id} className="chip chip-danger" style={{ fontSize: '11px' }}>
+                  {m.kode} · {m.name} — sisa {m.balance?.toFixed(1)} {m.unit}
                 </span>
               ))}
             </div>
@@ -98,7 +123,7 @@ function PurchasingAlertBanner({ alerts }: { alerts: PurchasingAlerts }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
               {lowProd.map(m => (
                 <span key={m.id} className="chip chip-warning" style={{ fontSize: '11px' }}>
-                  {m.kode} — sisa {m.balance?.toFixed(1)} {m.unit}
+                  {m.kode} · {m.name} — sisa {m.balance?.toFixed(1)} {m.unit}
                 </span>
               ))}
             </div>
@@ -141,23 +166,26 @@ function GudangDashboard() {
 
   const materials   = matData?.results ?? []
   const orders      = ordersData?.results ?? []
-  const lowStock    = materials.filter(m => parseFloat(m.stock) < parseFloat(m.safety_stock))
-  const critStock   = materials.filter(m => parseFloat(m.stock) < parseFloat(m.safety_stock) * 0.5)
-  const activeOrders  = orders.filter(o => o.status === 'IN_PROGRESS')
-  const pendingOrders = orders.filter(o => ['DRAFT', 'CONFIRMED', 'MAT_SENT'].includes(o.status))
+  const activeOrders  = orders.filter(o => ['MAT_SENT', 'IN_PROGRESS'].includes(o.status))
+  const pendingOrders = orders.filter(o => ['DRAFT', 'CONFIRMED'].includes(o.status))
   const doneOrders    = orders.filter(o => o.status === 'DONE')
+
+  // Use purchasingAlerts as single source of truth so metrics match the alert banner
+  const critProd = purchasingAlerts?.low_prod_stock.filter(m => m.level === 'critical') ?? []
+  const lowProd  = purchasingAlerts?.low_prod_stock.filter(m => m.level === 'low') ?? []
+  const aktifCount = purchasingAlerts?.active_orders_count ?? activeOrders.length
 
   return (
     <>
-      {purchasingAlerts && <PurchasingAlertBanner alerts={purchasingAlerts} />}
+      {purchasingAlerts && <PurchasingAlertBanner alerts={purchasingAlerts} activeOrders={activeOrders} />}
 
       <div className="metrics-grid" style={{ marginBottom: '16px' }}>
         {[
           { label: 'Total Izin',   value: ordersData?.count ?? '—' },
-          { label: 'Aktif',        value: activeOrders.length,  color: 'var(--color-text-warning)' },
-          { label: 'Pending',      value: pendingOrders.length, color: 'var(--color-text-info)' },
-          { label: 'Stok Kritis',  value: critStock.length, color: critStock.length > 0 ? 'var(--color-text-danger)' : 'var(--color-text-secondary)' },
-          { label: 'Stok Rendah',  value: lowStock.length, color: lowStock.length > 0 ? 'var(--color-text-warning)' : undefined },
+          { label: 'Aktif',        value: aktifCount,  color: aktifCount > 0 ? 'var(--color-text-warning)' : 'var(--color-text-secondary)' },
+          { label: 'Pending',      value: pendingOrders.length, color: pendingOrders.length > 0 ? 'var(--color-text-info)' : undefined },
+          { label: 'Stok Kritis',  value: critProd.length, color: critProd.length > 0 ? 'var(--color-text-danger)' : 'var(--color-text-secondary)' },
+          { label: 'Stok Rendah',  value: lowProd.length, color: lowProd.length > 0 ? 'var(--color-text-warning)' : undefined },
           { label: 'Selesai',      value: doneOrders.length, color: 'var(--color-text-success)' },
         ].map(({ label, value, color }) => (
           <div key={label} className="metric-card">
@@ -195,29 +223,50 @@ function GudangDashboard() {
 
         {/* Stok gudang */}
         <div className="card" style={{ overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border-tertiary)' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontWeight: 600, fontSize: '13px' }}>Status Stok Gudang</span>
+            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>{materials.length} material</span>
           </div>
-          <table className="tbl">
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Stok</th><th>Status</th></tr></thead>
-            <tbody>
-              {materials.slice(0, 8).map(m => {
+          <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+            {[...materials]
+              .sort((a, b) => {
+                const pctA = parseFloat(a.safety_stock) > 0 ? parseFloat(a.stock) / parseFloat(a.safety_stock) : 1
+                const pctB = parseFloat(b.safety_stock) > 0 ? parseFloat(b.stock) / parseFloat(b.safety_stock) : 1
+                return pctA - pctB
+              })
+              .map(m => {
                 const stock  = parseFloat(m.stock)
                 const safety = parseFloat(m.safety_stock)
+                const pct    = safety > 0 ? Math.min((stock / safety) * 100, 100) : 100
                 const status = stock >= safety ? 'AMAN' : stock >= safety * 0.5 ? 'RENDAH' : 'KRITIS'
-                const cls    = status === 'AMAN' ? 'chip-success' : status === 'RENDAH' ? 'chip-warning' : 'chip-danger'
+                const barColor = status === 'AMAN' ? 'var(--color-text-success)' : status === 'RENDAH' ? 'var(--color-text-warning)' : 'var(--color-text-danger)'
+                const bgColor  = status === 'AMAN' ? '#dcfce7' : status === 'RENDAH' ? '#fef9c3' : '#fee2e2'
                 return (
-                  <tr key={m.id}>
-                    <td style={{ fontWeight: 600 }}>{m.kode}</td>
-                    <td style={{ textAlign: 'right', color: stock < 0 ? 'var(--color-text-danger)' : undefined }}>
-                      {formatNum(stock, 0)} {m.unit}
-                    </td>
-                    <td><span className={`chip ${cls}`}>{status}</span></td>
-                  </tr>
+                  <div key={m.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--color-border-tertiary)', backgroundColor: status === 'KRITIS' ? 'rgba(239,68,68,0.04)' : undefined }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '5px' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '1px' }}>{m.kode} · {m.category}</div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px', flexShrink: 0 }}>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontWeight: 600, fontSize: '13px', color: stock <= 0 ? 'var(--color-text-danger)' : undefined }}>
+                            {formatNum(stock, 0)} <span style={{ fontWeight: 400, fontSize: '11px', color: 'var(--color-text-secondary)' }}>{m.unit}</span>
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>/ {formatNum(safety, 0)}</div>
+                        </div>
+                        <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '999px', background: bgColor, color: barColor, letterSpacing: '0.4px' }}>
+                          {status}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ height: '4px', borderRadius: '999px', background: 'var(--color-border-tertiary)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.max(pct, stock > 0 ? 2 : 0)}%`, background: barColor, borderRadius: '999px', transition: 'width 0.3s' }} />
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
+          </div>
         </div>
       </div>
     </>

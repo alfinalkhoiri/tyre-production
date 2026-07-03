@@ -79,7 +79,11 @@ Role baru dibuat oleh admin via halaman Register di sistem.
 ### Dashboard
 
 - Ringkasan metrik sesuai role (Gudang vs Produksi)
-- Alert stok kritis dan material minus
+- **Alert cerdas sinkron dengan metrik:**
+  - Alert stok produksi kritis menampilkan nama material lengkap (kode · nama · sisa stok)
+  - Jika ada izin produksi aktif → alert menampilkan nomor izin + daftar material yang perlu dikirim
+  - Jika tidak ada izin produksi aktif → alert mengingatkan untuk membuat izin terlebih dahulu
+  - Metrik "Stok Kritis" dan "Stok Rendah" sinkron langsung dengan data `purchasing-alerts` API
 - Tabel order aktif dan status real-time
 
 ### Izin Produksi (Purchasing)
@@ -108,6 +112,7 @@ Role baru dibuat oleh admin via halaman Register di sistem.
 
 - CRUD tyre spec (ukuran, model, varian)
 - Bill of Materials per spec dengan kalkulasi roll
+- **Non-Aktif** menggantikan "Hapus" — spesifikasi tidak dihapus permanen, hanya disembunyikan (`is_active=false`); konfirmasi sebelum aksi
 
 ### Analitik
 

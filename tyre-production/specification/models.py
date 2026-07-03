@@ -9,6 +9,7 @@ class Material(models.Model):
     roll_length = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     stock = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     safety_stock = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['kode']
@@ -24,6 +25,7 @@ class TyreSpec(models.Model):
     model = models.CharField(max_length=100)
     variant = models.CharField(max_length=100, blank=True)
     is_custom = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['size', 'model']

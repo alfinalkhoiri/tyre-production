@@ -15,6 +15,7 @@ export interface Material {
   safety_stock: string
   locked_qty: string
   roll_length: string
+  is_active: boolean
 }
 
 export interface StockTransaction {
@@ -46,6 +47,7 @@ export interface TyreSpec {
   model: string
   variant: string
   is_custom: boolean
+  is_active: boolean
   bom_items?: BOMItem[]
 }
 

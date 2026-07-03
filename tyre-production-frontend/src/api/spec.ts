@@ -13,8 +13,11 @@ export const getTyreSpec = (id: number) =>
 export const createTyreSpec = (data: Partial<TyreSpec>) =>
   api.post<TyreSpec>('/spec/tyre-specs/', data).then(r => r.data)
 
-export const deleteTyreSpec = (id: number) =>
-  api.delete(`/spec/tyre-specs/${id}/`)
+export const deactivateTyreSpec = (id: number) =>
+  api.patch<TyreSpec>(`/spec/tyre-specs/${id}/`, { is_active: false })
+
+export const deactivateMaterial = (id: number) =>
+  api.patch<Material>(`/spec/materials/${id}/`, { is_active: false })
 
 export const createBOMItem = (data: { tyre_spec: number; material: number; qty: string; unit: string }) =>
   api.post<BOMItem>('/spec/bom-items/', data).then(r => r.data)

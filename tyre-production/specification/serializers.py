@@ -8,7 +8,7 @@ class MaterialSerializer(serializers.ModelSerializer):
     class Meta:
         model = Material
         fields = ('id', 'kode', 'name', 'category', 'unit', 'roll_length',
-                  'stock', 'safety_stock', 'locked_qty')
+                  'stock', 'safety_stock', 'locked_qty', 'is_active')
 
 
 class BOMItemSerializer(serializers.ModelSerializer):
@@ -27,11 +27,11 @@ class TyreSpecSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TyreSpec
-        fields = ('id', 'size', 'model', 'variant', 'is_custom', 'bom_items')
+        fields = ('id', 'size', 'model', 'variant', 'is_custom', 'is_active', 'bom_items')
 
 
 class TyreSpecListSerializer(serializers.ModelSerializer):
     """Serializer ringkas untuk list view (tanpa bom_items)."""
     class Meta:
         model = TyreSpec
-        fields = ('id', 'size', 'model', 'variant', 'is_custom')
+        fields = ('id', 'size', 'model', 'variant', 'is_custom', 'is_active')

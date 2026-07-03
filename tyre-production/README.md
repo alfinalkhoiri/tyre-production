@@ -92,12 +92,19 @@ Server berjalan di: `http://localhost:8000`
 
 ### Spesifikasi (`/api/spec/`)
 
-| Method   | Endpoint                | Write Access          | Keterangan             |
-| -------- | ----------------------- | --------------------- | ---------------------- |
-| GET/POST | `/materials/`           | Admin, Purchasing     | CRUD material          |
-| GET      | `/materials/low-stock/` | Auth                  | Material stok kritis   |
-| GET/POST | `/tyre-specs/`          | Admin, Purchasing     | CRUD spesifikasi tyre  |
-| GET/POST | `/bom-items/`           | Admin, Purchasing     | CRUD Bill of Materials |
+| Method        | Endpoint                   | Write Access          | Keterangan                                                       |
+| ------------- | -------------------------- | --------------------- | ---------------------------------------------------------------- |
+| GET/POST      | `/materials/`              | Admin, Purchasing     | CRUD material (hanya `is_active=True`)                           |
+| GET           | `/materials/low-stock/`    | Auth                  | Material stok kritis                                             |
+| PATCH         | `/materials/{id}/`         | Admin, Purchasing     | Non-aktifkan: `{"is_active": false}` — ditolak jika ada FK aktif |
+| GET/POST      | `/tyre-specs/`             | Admin, Purchasing     | CRUD spesifikasi tyre (hanya `is_active=True`)                   |
+| PATCH         | `/tyre-specs/{id}/`        | Admin, Purchasing     | Non-aktifkan: `{"is_active": false}`                             |
+| GET/POST      | `/bom-items/`              | Admin, Purchasing     | CRUD Bill of Materials                                           |
+
+> **Catatan Hapus Master Data:**
+> - `TyreSpec` tidak dapat dihapus permanen jika sudah dipakai di production order — sistem hanya menonaktifkan (`is_active=False`).
+> - `Material` tidak dapat dihapus jika direferensikan di BOM, transaksi stok, pemakaian harian, atau reservasi stok. API mengembalikan `400` dengan pesan error; gunakan PATCH `is_active=false` sebagai gantinya.
+> - List endpoint secara default hanya mengembalikan data aktif (`is_active=True`).
 
 ### Inventori (`/api/inventory/`)
 
@@ -151,6 +158,17 @@ Status `perlu_pesan` muncul jika:
 - OpenAPI JSON: `http://localhost:8000/api/schema/`
 
 > Docs dilindungi autentikasi saat `DEBUG=False` (production)
+
+## Master Data — Soft Delete (`is_active`)
+
+`Material` dan `TyreSpec` mendukung **soft delete** melalui field `is_active`:
+
+| Model       | Perilaku DELETE / Non-Aktif                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| `TyreSpec`  | Tidak bisa dihapus permanen jika ada `ProductionOrderItem` yang merujuk. Selalu soft-delete via PATCH `is_active=false`. |
+| `Material`  | Ditolak (HTTP 400) jika ada FK aktif di BOMItem, StockTransaction, DailyUsageEntry, MaterialShipmentEntry, atau StockReservation. Jika tidak ada referensi, boleh dihapus permanen. |
+
+Migrasi terkait: `specification/migrations/0004_add_is_active_to_material_and_tyrespec.py`
 
 ## Stok Dikunci (StockReservation)
 

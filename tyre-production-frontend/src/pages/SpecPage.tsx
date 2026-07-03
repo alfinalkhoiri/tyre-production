@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, Plus, Trash2, Info } from 'lucide-react'
-import { getTyreSpecs, getMaterials, createTyreSpec, deleteTyreSpec, createBOMItem } from '@/api/spec'
+import { ChevronDown, ChevronRight, Plus, EyeOff, Info } from 'lucide-react'
+import { getTyreSpecs, getMaterials, createTyreSpec, deactivateTyreSpec, createBOMItem } from '@/api/spec'
 import type { TyreSpec, BOMItem, Material } from '@/types'
 
 const VARIANTS = ['PERFORMANCE', 'RAPID ROB', 'DD GG', 'ROAD CRUISER', 'CUSTOM', '']
@@ -105,7 +105,7 @@ function BOMTable({ items }: { items: BOMItem[] }) {
   )
 }
 
-function TyreCard({ spec, onDelete }: { spec: TyreSpec; onDelete: () => void }) {
+function TyreCard({ spec, onDeactivate }: { spec: TyreSpec; onDeactivate: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const bom = spec.bom_items ?? []
   const rollItems = bom.filter(b => b.unit === 'm')
@@ -124,10 +124,11 @@ function TyreCard({ spec, onDelete }: { spec: TyreSpec; onDelete: () => void }) 
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
-            className="btn btn-d btn-xs"
-            onClick={e => { e.stopPropagation(); if (confirm(`Hapus ${spec.size}?`)) onDelete() }}
+            className="btn btn-ghost btn-xs"
+            style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-border-secondary)' }}
+            onClick={e => { e.stopPropagation(); if (confirm(`Non-aktifkan ${spec.size}? Spesifikasi tidak akan muncul lagi di daftar.`)) onDeactivate() }}
           >
-            <Trash2 size={12} /> Hapus
+            <EyeOff size={12} /> Non-Aktif
           </button>
           {expanded ? <ChevronDown size={16} color="#9ca3af" /> : <ChevronRight size={16} color="#9ca3af" />}
         </div>
@@ -309,8 +310,8 @@ export function SpecPage() {
     queryFn: () => getMaterials({ page_size: '100' }),
   })
 
-  const deleteSpec = useMutation({
-    mutationFn: deleteTyreSpec,
+  const deactivateSpec = useMutation({
+    mutationFn: deactivateTyreSpec,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tyre-specs'] }),
   })
 
@@ -394,7 +395,7 @@ export function SpecPage() {
           <TyreCard
             key={spec.id}
             spec={spec}
-            onDelete={() => deleteSpec.mutate(spec.id)}
+            onDeactivate={() => deactivateSpec.mutate(spec.id)}
           />
         ))
       )}

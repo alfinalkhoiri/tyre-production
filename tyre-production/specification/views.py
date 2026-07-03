@@ -2,6 +2,7 @@ from django.db.models import F, OuterRef, Subquery, DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, filters
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
@@ -46,7 +47,7 @@ def _annotate_locked(qs):
     destroy=extend_schema(summary='Hapus material', tags=['Specification']),
 )
 class MaterialViewSet(viewsets.ModelViewSet):
-    queryset = _annotate_locked(Material.objects.all())
+    queryset = _annotate_locked(Material.objects.filter(is_active=True))
     serializer_class = MaterialSerializer
     permission_classes = [SpecificationWritePermission]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -54,6 +55,20 @@ class MaterialViewSet(viewsets.ModelViewSet):
     search_fields = ['kode', 'name']
     ordering_fields = ['kode', 'name', 'stock']
     ordering = ['kode']
+
+    def perform_destroy(self, instance):
+        has_refs = (
+            instance.bom_items.exists() or
+            instance.transactions.exists() or
+            instance.daily_usage_entries.exists() or
+            instance.stock_reservations.exists()
+        )
+        if has_refs:
+            raise ValidationError(
+                'Material sudah digunakan dalam data lain dan tidak dapat dihapus. '
+                'Nonaktifkan material ini sebagai gantinya.'
+            )
+        instance.delete()
 
     @extend_schema(
         summary='Material dengan stok di bawah safety stock',
@@ -63,7 +78,7 @@ class MaterialViewSet(viewsets.ModelViewSet):
     )
     @action(detail=False, methods=['get'], url_path='low-stock')
     def low_stock(self, request):
-        qs = Material.objects.filter(stock__lte=F('safety_stock'))
+        qs = Material.objects.filter(stock__lte=F('safety_stock'), is_active=True)
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
 
@@ -86,7 +101,7 @@ class MaterialViewSet(viewsets.ModelViewSet):
     destroy=extend_schema(summary='Hapus tyre spec', tags=['Specification']),
 )
 class TyreSpecViewSet(viewsets.ModelViewSet):
-    queryset = TyreSpec.objects.prefetch_related('bom_items__material')
+    queryset = TyreSpec.objects.filter(is_active=True).prefetch_related('bom_items__material')
     permission_classes = [SpecificationWritePermission]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['size', 'is_custom']
@@ -96,6 +111,15 @@ class TyreSpecViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         return TyreSpecSerializer
+
+    def perform_destroy(self, instance):
+        if instance.order_items.exists():
+            raise ValidationError(
+                'Spesifikasi sudah digunakan dalam izin produksi dan tidak dapat dihapus. '
+                'Nonaktifkan spesifikasi ini sebagai gantinya.'
+            )
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
 
 
 @extend_schema_view(

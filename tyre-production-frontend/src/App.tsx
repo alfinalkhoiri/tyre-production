@@ -55,7 +55,7 @@ export default function App() {
             </ProtectedRoute>
           } />
           <Route path="forecast" element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={['admin', 'purchasing', 'viewer']}>
               <Suspense fallback={<PageLoader />}><ForecastPage /></Suspense>
             </ProtectedRoute>
           } />
