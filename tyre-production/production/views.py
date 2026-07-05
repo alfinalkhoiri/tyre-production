@@ -605,21 +605,52 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             for r in top_materials
         ]
 
-        # 4. Ringkasan status order — funnel kumulatif
-        # Setiap stage menghitung order yang sudah MELEWATI stage tersebut,
-        # bukan hanya yang saat ini berada di status itu.
+        # 4. Ringkasan status order — funnel kumulatif dengan persentase aktual
         STATUS_PIPELINE = ['DRAFT', 'CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT', 'DONE']
         STATUS_LABELS = {
             'DRAFT': 'Draft', 'CONFIRMED': 'Dikonfirmasi',
             'MAT_SENT': 'Material Terkirim', 'IN_PROGRESS': 'Produksi',
             'RESULT_SENT': 'Hasil Terkirim', 'DONE': 'Selesai',
         }
+
+        # Hitung % material terpenuhi (per baris material BOM, semua order aktif)
+        active_orders = list(
+            ProductionOrder.objects.filter(
+                status__in=['MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT', 'DONE']
+            ).prefetch_related('items__tyre_spec__bom_items__material', 'material_shipments__entries')
+        )
+        mat_needed = mat_fulfilled = 0
+        total_planned_tyre = total_delivered_tyre = 0
+        for o in active_orders:
+            req = {r['material_id']: r['qty_needed'] for r in aggregate_requirements(o.items.all())}
+            recv: dict = {}
+            for s in o.material_shipments.filter(confirmed=True).all():
+                for e in s.entries.all():
+                    recv[e.material_id] = recv.get(e.material_id, 0) + float(e.qty)
+            for mid, qty in req.items():
+                mat_needed += 1
+                if recv.get(mid, 0) >= qty:
+                    mat_fulfilled += 1
+            total_planned_tyre += int(o.items.aggregate(t=Sum('qty_plan'))['t'] or 0)
+            total_delivered_tyre += int(
+                TyreDeliveryEntry.objects.filter(delivery__order=o).aggregate(t=Sum('qty_actual'))['t'] or 0
+            )
+        mat_pct  = round(mat_fulfilled  / mat_needed          * 100) if mat_needed          > 0 else 0
+        tyre_pct = round(total_delivered_tyre / total_planned_tyre * 100) if total_planned_tyre > 0 else 0
+
+        total_orders = ProductionOrder.objects.count()
         order_summary = []
         for i, s in enumerate(STATUS_PIPELINE):
-            count = ProductionOrder.objects.filter(
-                status__in=STATUS_PIPELINE[i:]
-            ).count()
-            order_summary.append({'status': s, 'label': STATUS_LABELS[s], 'count': count})
+            count = ProductionOrder.objects.filter(status__in=STATUS_PIPELINE[i:]).count()
+            base_pct = round(count / total_orders * 100) if total_orders > 0 else 0
+            # MAT_SENT dan RESULT_SENT tampilkan persentase aktual, bukan hanya count
+            if s == 'MAT_SENT':
+                pct = mat_pct
+            elif s == 'RESULT_SENT':
+                pct = tyre_pct
+            else:
+                pct = base_pct
+            order_summary.append({'status': s, 'label': STATUS_LABELS[s], 'count': count, 'pct': pct})
 
         return Response({
             'usage_weekly':        usage_weekly,

@@ -73,13 +73,10 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 function OrderStatusGrid({ data }: { data: AnalyticsOrderSummary[] }) {
-  // Funnel: base = jumlah semua order (count di DRAFT = tertinggi)
-  const base = data[0]?.count || 1
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
       {data.map(d => {
-        const pct = base > 0 ? Math.round((d.count / base) * 100) : 0
-        const hasData = d.count > 0
+        const hasData = d.count > 0 || d.pct > 0
         return (
           <div
             key={d.status}
@@ -91,7 +88,7 @@ function OrderStatusGrid({ data }: { data: AnalyticsOrderSummary[] }) {
             </div>
             <div className="metric-label">{d.label}</div>
             <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2 }}>
-              {pct}%
+              {d.pct}%
             </div>
           </div>
         )

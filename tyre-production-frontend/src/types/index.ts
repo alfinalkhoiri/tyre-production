@@ -296,6 +296,7 @@ export interface AnalyticsOrderSummary {
   status: string
   label: string
   count: number
+  pct: number
 }
 
 export interface AnalyticsData {
