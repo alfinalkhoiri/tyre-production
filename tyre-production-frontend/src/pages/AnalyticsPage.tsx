@@ -72,24 +72,38 @@ const STATUS_COLOR: Record<string, string> = {
   DONE:         'var(--color-accent-success)',
 }
 
-function OrderStatusGrid({ data }: { data: AnalyticsOrderSummary[] }) {
+function OrderStatusGrid({
+  data, totalMatShipments, matPct, totalTyreDelivered, tyrePct,
+}: {
+  data: AnalyticsOrderSummary[]
+  totalMatShipments: number
+  matPct: number
+  totalTyreDelivered: number
+  tyrePct: number
+}) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
       {data.map(d => {
         const hasData = d.count > 0 || d.pct > 0
+        const color = hasData ? STATUS_COLOR[d.status] : 'var(--color-border-tertiary)'
+        const textColor = hasData ? STATUS_COLOR[d.status] : 'var(--color-text-secondary)'
+
+        let subline: string | null = null
+        if (d.status === 'MAT_SENT') {
+          subline = `${totalMatShipments} pengiriman · ${matPct}% terpenuhi`
+        } else if (d.status === 'RESULT_SENT') {
+          subline = `${formatNum(totalTyreDelivered)} ban · ${tyrePct}% target`
+        }
+
         return (
-          <div
-            key={d.status}
-            className="metric-card"
-            style={{ border: `2px solid ${hasData ? STATUS_COLOR[d.status] : 'var(--color-border-tertiary)'}` }}
-          >
-            <div className="metric-value" style={{ color: hasData ? STATUS_COLOR[d.status] : 'var(--color-text-secondary)', fontSize: 28 }}>
-              {d.count}
-            </div>
+          <div key={d.status} className="metric-card" style={{ border: `2px solid ${color}` }}>
+            <div className="metric-value" style={{ color: textColor, fontSize: 28 }}>{d.count}</div>
             <div className="metric-label">{d.label}</div>
-            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2 }}>
-              {d.pct}%
-            </div>
+            {subline ? (
+              <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2 }}>{subline}</div>
+            ) : (
+              <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2 }}>{d.pct}%</div>
+            )}
           </div>
         )
       })}
@@ -143,7 +157,7 @@ export function AnalyticsPage() {
           { label: 'Total Izin Produksi', value: data.total_orders,        color: undefined },
           { label: 'Total Ban Diproduksi', value: data.total_tyre_produced, color: 'var(--color-text-success)' },
           { label: 'Izin Selesai',         value: data.order_summary.find(s => s.status === 'DONE')?.count ?? 0,        color: 'var(--color-text-success)' },
-          { label: 'Sedang Berjalan',      value: (data.order_summary.find(s => s.status === 'IN_PROGRESS')?.count ?? 0) + (data.order_summary.find(s => s.status === 'MAT_SENT')?.count ?? 0), color: 'var(--color-text-info)' },
+          { label: 'Sedang Berjalan',      value: (data.order_summary.find(s => s.status === 'IN_PROGRESS')?.count ?? 0) + (data.order_summary.find(s => s.status === 'MAT_SENT')?.count ?? 0) + (data.order_summary.find(s => s.status === 'CONFIRMED')?.count ?? 0), color: 'var(--color-text-info)' },
         ].map(({ label, value, color }) => (
           <div key={label} className="metric-card">
             <div className="metric-value" style={{ color }}>{formatNum(value)}</div>
@@ -228,7 +242,13 @@ export function AnalyticsPage() {
           <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>
             Jumlah izin yang sudah melewati setiap tahap produksi
           </p>
-          <OrderStatusGrid data={data.order_summary} />
+          <OrderStatusGrid
+            data={data.order_summary}
+            totalMatShipments={data.total_mat_shipments ?? 0}
+            matPct={data.mat_pct ?? 0}
+            totalTyreDelivered={data.total_tyre_delivered ?? 0}
+            tyrePct={data.tyre_pct ?? 0}
+          />
         </Section>
 
       </div>

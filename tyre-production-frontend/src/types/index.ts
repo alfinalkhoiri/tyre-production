@@ -306,5 +306,9 @@ export interface AnalyticsData {
   order_summary: AnalyticsOrderSummary[]
   total_orders: number
   total_tyre_produced: number
+  total_mat_shipments: number
+  mat_pct: number
+  total_tyre_delivered: number
+  tyre_pct: number
   period_days: number
 }

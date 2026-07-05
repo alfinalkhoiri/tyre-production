@@ -605,7 +605,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             for r in top_materials
         ]
 
-        # 4. Ringkasan status order — funnel kumulatif dengan persentase aktual
+        # 4. Ringkasan status order — per-status aktual + persentase progres
         STATUS_PIPELINE = ['DRAFT', 'CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT', 'DONE']
         STATUS_LABELS = {
             'DRAFT': 'Draft', 'CONFIRMED': 'Dikonfirmasi',
@@ -613,7 +613,7 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             'RESULT_SENT': 'Hasil Terkirim', 'DONE': 'Selesai',
         }
 
-        # Hitung % material terpenuhi (per baris material BOM, semua order aktif)
+        # Hitung % material terpenuhi dan total tyre terkirim dari order aktif
         active_orders = list(
             ProductionOrder.objects.filter(
                 status__in=['MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT', 'DONE']
@@ -621,10 +621,13 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         )
         mat_needed = mat_fulfilled = 0
         total_planned_tyre = total_delivered_tyre = 0
+        total_mat_shipments = 0
         for o in active_orders:
             req = {r['material_id']: r['qty_needed'] for r in aggregate_requirements(o.items.all())}
             recv: dict = {}
-            for s in o.material_shipments.filter(confirmed=True).all():
+            confirmed_ships = o.material_shipments.filter(confirmed=True).all()
+            total_mat_shipments += confirmed_ships.count()
+            for s in confirmed_ships:
                 for e in s.entries.all():
                     recv[e.material_id] = recv.get(e.material_id, 0) + float(e.qty)
             for mid, qty in req.items():
@@ -640,10 +643,10 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
         total_orders = ProductionOrder.objects.count()
         order_summary = []
-        for i, s in enumerate(STATUS_PIPELINE):
-            count = ProductionOrder.objects.filter(status__in=STATUS_PIPELINE[i:]).count()
+        for s in STATUS_PIPELINE:
+            # Gunakan jumlah order yang SAAT INI berada di status ini (bukan kumulatif)
+            count = ProductionOrder.objects.filter(status=s).count()
             base_pct = round(count / total_orders * 100) if total_orders > 0 else 0
-            # MAT_SENT dan RESULT_SENT tampilkan persentase aktual, bukan hanya count
             if s == 'MAT_SENT':
                 pct = mat_pct
             elif s == 'RESULT_SENT':
@@ -653,13 +656,17 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             order_summary.append({'status': s, 'label': STATUS_LABELS[s], 'count': count, 'pct': pct})
 
         return Response({
-            'usage_weekly':        usage_weekly,
-            'production_monthly':  production_monthly,
-            'top_materials':       top_materials,
-            'order_summary':       order_summary,
-            'total_orders':        ProductionOrder.objects.count(),
-            'total_tyre_produced': int(TyreDeliveryEntry.objects.aggregate(t=Sum('qty_actual'))['t'] or 0),
-            'period_days':         30,
+            'usage_weekly':          usage_weekly,
+            'production_monthly':    production_monthly,
+            'top_materials':         top_materials,
+            'order_summary':         order_summary,
+            'total_orders':          total_orders,
+            'total_tyre_produced':   int(TyreDeliveryEntry.objects.aggregate(t=Sum('qty_actual'))['t'] or 0),
+            'total_mat_shipments':   total_mat_shipments,
+            'mat_pct':               mat_pct,
+            'total_tyre_delivered':  total_delivered_tyre,
+            'tyre_pct':              tyre_pct,
+            'period_days':           30,
         })
 
     # ── Progress summary ──────────────────────────────────────────────────────
