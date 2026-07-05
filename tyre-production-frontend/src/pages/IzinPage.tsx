@@ -632,7 +632,7 @@ function PermitCard({ order }: { order: ProductionOrder }) {
               )}
 
               {/* Material Shipment */}
-              {['CONFIRMED', 'MAT_SENT'].includes(order.status) && progress && (
+              {['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS'].includes(order.status) && progress && (
                 <MaterialShipmentSection order={order} progress={progress.material_progress} onRefresh={handleRefresh} />
               )}
 
