@@ -73,18 +73,29 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 function OrderStatusGrid({ data }: { data: AnalyticsOrderSummary[] }) {
-  const total = data.reduce((s, d) => s + d.count, 0) || 1
+  // Funnel: base = jumlah semua order (count di DRAFT = tertinggi)
+  const base = data[0]?.count || 1
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-      {data.map(d => (
-        <div key={d.status} className="metric-card" style={{ border: `2px solid ${STATUS_COLOR[d.status] ?? '#e5e7eb'}` }}>
-          <div className="metric-value" style={{ color: STATUS_COLOR[d.status], fontSize: 28 }}>{d.count}</div>
-          <div className="metric-label">{d.label}</div>
-          <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2 }}>
-            {total > 0 ? ((d.count / total) * 100).toFixed(0) : 0}%
+      {data.map(d => {
+        const pct = base > 0 ? Math.round((d.count / base) * 100) : 0
+        const hasData = d.count > 0
+        return (
+          <div
+            key={d.status}
+            className="metric-card"
+            style={{ border: `2px solid ${hasData ? STATUS_COLOR[d.status] : 'var(--color-border-tertiary)'}` }}
+          >
+            <div className="metric-value" style={{ color: hasData ? STATUS_COLOR[d.status] : 'var(--color-text-secondary)', fontSize: 28 }}>
+              {d.count}
+            </div>
+            <div className="metric-label">{d.label}</div>
+            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2 }}>
+              {pct}%
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -217,6 +228,9 @@ export function AnalyticsPage() {
 
         {/* Kanan bawah: Status order */}
         <Section title="📋 Status Izin Produksi">
+          <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>
+            Jumlah izin yang sudah melewati setiap tahap produksi
+          </p>
           <OrderStatusGrid data={data.order_summary} />
         </Section>
 

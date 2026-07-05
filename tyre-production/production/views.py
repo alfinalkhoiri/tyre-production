@@ -605,19 +605,21 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             for r in top_materials
         ]
 
-        # 4. Ringkasan status order
-        status_counts = dict(
-            ProductionOrder.objects.values_list('status').annotate(c=Count('id'))
-        )
+        # 4. Ringkasan status order — funnel kumulatif
+        # Setiap stage menghitung order yang sudah MELEWATI stage tersebut,
+        # bukan hanya yang saat ini berada di status itu.
+        STATUS_PIPELINE = ['DRAFT', 'CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT', 'DONE']
         STATUS_LABELS = {
             'DRAFT': 'Draft', 'CONFIRMED': 'Dikonfirmasi',
             'MAT_SENT': 'Material Terkirim', 'IN_PROGRESS': 'Produksi',
             'RESULT_SENT': 'Hasil Terkirim', 'DONE': 'Selesai',
         }
-        order_summary = [
-            {'status': s, 'label': STATUS_LABELS.get(s, s), 'count': status_counts.get(s, 0)}
-            for s in STATUS_LABELS
-        ]
+        order_summary = []
+        for i, s in enumerate(STATUS_PIPELINE):
+            count = ProductionOrder.objects.filter(
+                status__in=STATUS_PIPELINE[i:]
+            ).count()
+            order_summary.append({'status': s, 'label': STATUS_LABELS[s], 'count': count})
 
         return Response({
             'usage_weekly':        usage_weekly,
