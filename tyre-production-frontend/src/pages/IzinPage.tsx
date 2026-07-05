@@ -233,7 +233,7 @@ function MaterialShipmentSection({ order, progress, onRefresh }: {
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
           <Truck size={12} /> Pengiriman Material
         </div>
-        {order.status === 'CONFIRMED' && !allReceived && (
+        {['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS'].includes(order.status) && !allReceived && (
           <button className="btn btn-b btn-sm" onClick={() => setShowModal(true)}>
             <Plus size={11} /> Kirim Material
           </button>

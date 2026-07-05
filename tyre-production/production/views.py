@@ -172,8 +172,8 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         if get_role(request.user) not in ('admin', 'purchasing'):
             return Response({'detail': 'Tidak punya izin untuk mengirim material.'}, status=status.HTTP_403_FORBIDDEN)
 
-        if order.status not in [ProductionOrder.STATUS_CONFIRMED, ProductionOrder.STATUS_MAT_SENT]:
-            return Response({'detail': 'Order harus CONFIRMED atau MAT_SENT untuk mengirim material.'}, status=400)
+        if order.status not in [ProductionOrder.STATUS_CONFIRMED, ProductionOrder.STATUS_MAT_SENT, ProductionOrder.STATUS_IN_PROGRESS]:
+            return Response({'detail': 'Order harus CONFIRMED, MAT_SENT, atau IN_PROGRESS untuk mengirim material.'}, status=400)
 
         ser = MaterialShipmentWriteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
