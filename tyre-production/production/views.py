@@ -238,19 +238,12 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         })
 
     def _check_material_completion(self, order):
-        items = order.items.prefetch_related('tyre_spec__bom_items__material').all()
-        required = {r['material_id']: r['qty_needed'] for r in aggregate_requirements(items)}
-
-        # Only count CONFIRMED (received) shipments
-        received: dict = {}
-        for s in order.material_shipments.filter(confirmed=True).prefetch_related('entries').all():
-            for e in s.entries.all():
-                received[e.material_id] = received.get(e.material_id, 0) + float(e.qty)
-
-        if required and all(received.get(mid, 0) >= qty for mid, qty in required.items()):
-            if order.status == ProductionOrder.STATUS_CONFIRMED:
-                order.status = ProductionOrder.STATUS_MAT_SENT
-                order.save()
+        # Pindah ke MAT_SENT segera setelah shipment pertama dikonfirmasi,
+        # tanpa menunggu 100% BOM terpenuhi (material bisa datang bertahap).
+        has_received = order.material_shipments.filter(confirmed=True).exists()
+        if has_received and order.status == ProductionOrder.STATUS_CONFIRMED:
+            order.status = ProductionOrder.STATUS_MAT_SENT
+            order.save()
 
     # ── Tyre Deliveries ───────────────────────────────────────────────────────
 
