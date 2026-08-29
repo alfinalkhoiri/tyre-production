@@ -7,7 +7,7 @@ from production.models import ProductionOrder, DailyUsage, DailyUsageEntry
 from inventory.models import StockTransaction
 from specification.models import Material
 from .factories import (
-    UserFactory, MaterialFactory, TyreSpecFactory,
+    UserFactory, MaterialFactory, TyreSpecFactory, BOMItemFactory,
     ProductionOrderFactory, DailyUsageFactory, DailyUsageEntryFactory,
 )
 
@@ -17,6 +17,17 @@ def api_client():
     from rest_framework.test import APIClient
     client = APIClient()
     client.force_authenticate(user=UserFactory())
+    return client
+
+
+@pytest.fixture
+def purchasing_client():
+    from rest_framework.test import APIClient
+    user = UserFactory()
+    user.profile.role = 'purchasing'
+    user.profile.save()
+    client = APIClient()
+    client.force_authenticate(user=user)
     return client
 
 
@@ -106,6 +117,35 @@ class TestAutoStockSignal:
         assert mat.stock == Decimal('50.00')
         assert StockTransaction.objects.filter(material=mat).count() == 2
 
+    def test_signal_rejects_usage_exceeding_stock(self):
+        from rest_framework.exceptions import ValidationError
+        mat   = MaterialFactory(kode='SIG-005', stock=Decimal('10.00'))
+        usage = DailyUsageFactory(date='2026-05-01', shift='1')
+
+        with pytest.raises(ValidationError):
+            DailyUsageEntry.objects.create(daily_usage=usage, material=mat, qty=Decimal('15.00'))
+
+        mat.refresh_from_db()
+        assert mat.stock == Decimal('10.00')
+        assert not StockTransaction.objects.filter(material=mat).exists()
+
+    def test_update_does_not_double_deduct_stock(self):
+        """Edit laporan pemakaian (delete+recreate entries) tidak boleh
+        memotong stok gudang dua kali untuk gerakan yang sama."""
+        from production.serializers import DailyUsageWriteSerializer
+
+        mat   = MaterialFactory(kode='SIG-006', stock=Decimal('100.00'))
+        usage = DailyUsageFactory(date='2026-05-01', shift='1')
+        DailyUsageEntry.objects.create(daily_usage=usage, material=mat, qty=Decimal('10.00'))
+        mat.refresh_from_db()
+        assert mat.stock == Decimal('90.00')
+
+        ser = DailyUsageWriteSerializer()
+        ser.update(usage, {'entries': [{'material': mat, 'qty': Decimal('10.00')}]})
+
+        mat.refresh_from_db()
+        assert mat.stock == Decimal('90.00')  # tetap, bukan 80.00
+
 
 # ── API: Production Order status transitions ──────────────────────────────────
 
@@ -121,6 +161,64 @@ class TestProductionOrderAPI:
         res = api_client.post('/api/production/orders/', payload)
         assert res.status_code == status.HTTP_201_CREATED
         assert res.data['status'] == 'DRAFT'
+
+    def test_create_order_rejected_when_material_insufficient(self, purchasing_client):
+        mat = MaterialFactory(kode='CRT-001', stock=Decimal('10.00'))
+        spec = TyreSpecFactory()
+        BOMItemFactory(tyre_spec=spec, material=mat, qty=Decimal('1.00'), unit='kg')
+
+        payload = {
+            'number': 'PO-2026-SHORT',
+            'date': '2026-05-16',
+            'shift': '1',
+            'pic': 'Budi Santoso',
+            'items': [{'tyre_spec': spec.pk, 'qty_plan': 50}],  # butuh 50kg, stok cuma 10kg
+        }
+        res = purchasing_client.post('/api/production/orders/', payload, format='json')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.data['shortages'][0]['kode'] == 'CRT-001'
+        assert not ProductionOrder.objects.filter(number='PO-2026-SHORT').exists()
+
+    def test_create_order_allowed_when_material_sufficient(self, purchasing_client):
+        mat = MaterialFactory(kode='CRT-002', stock=Decimal('100.00'))
+        spec = TyreSpecFactory()
+        BOMItemFactory(tyre_spec=spec, material=mat, qty=Decimal('1.00'), unit='kg')
+
+        payload = {
+            'number': 'PO-2026-OK',
+            'date': '2026-05-16',
+            'shift': '1',
+            'pic': 'Budi Santoso',
+            'items': [{'tyre_spec': spec.pk, 'qty_plan': 10}],  # butuh 10kg, stok 100kg
+        }
+        res = purchasing_client.post('/api/production/orders/', payload, format='json')
+        assert res.status_code == status.HTTP_201_CREATED
+        assert ProductionOrder.objects.filter(number='PO-2026-OK').exists()
+
+    def test_create_order_rejected_when_no_items(self, purchasing_client):
+        payload = {
+            'number': 'PO-2026-EMPTY',
+            'date': '2026-05-16',
+            'shift': '1',
+            'pic': 'Budi Santoso',
+            'items': [],
+        }
+        res = purchasing_client.post('/api/production/orders/', payload, format='json')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ProductionOrder.objects.filter(number='PO-2026-EMPTY').exists()
+
+    def test_create_order_rejected_when_qty_missing(self, purchasing_client):
+        spec = TyreSpecFactory()
+        payload = {
+            'number': 'PO-2026-NOQTY',
+            'date': '2026-05-16',
+            'shift': '1',
+            'pic': 'Budi Santoso',
+            'items': [{'tyre_spec': spec.pk, 'qty_plan': None}],
+        }
+        res = purchasing_client.post('/api/production/orders/', payload, format='json')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ProductionOrder.objects.filter(number='PO-2026-NOQTY').exists()
 
     def test_confirm_transition(self, api_client):
         order = ProductionOrderFactory(status=ProductionOrder.STATUS_DRAFT)
@@ -152,6 +250,19 @@ class TestProductionOrderAPI:
         api_client.post(f'/api/production/orders/{pk}/start/')
         res = api_client.post(f'/api/production/orders/{pk}/done/')
         assert res.data['status'] == 'DONE'
+
+    def test_reject_only_from_draft(self, purchasing_client):
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_CONFIRMED)
+        res = purchasing_client.post(f'/api/production/orders/{order.pk}/reject/')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_reject_transition(self, purchasing_client):
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_DRAFT)
+        res = purchasing_client.post(f'/api/production/orders/{order.pk}/reject/')
+        assert res.status_code == status.HTTP_200_OK
+        assert res.data['status'] == 'REJECTED'
+        order.refresh_from_db()
+        assert order.status == 'REJECTED'
 
     def test_filter_by_status(self, api_client):
         ProductionOrderFactory(status=ProductionOrder.STATUS_DRAFT)
@@ -204,3 +315,112 @@ class TestDailyUsageAPI:
         api_client.post('/api/production/daily-usages/', payload, format='json')
         res = api_client.post('/api/production/daily-usages/', payload, format='json')
         assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+
+# ── API: Tyre Delivery — status berubah begitu kirim pertama (bukan 100%) ─────
+
+@pytest.mark.django_db
+class TestTyreDeliveryStatusFlow:
+    def test_result_sent_on_first_partial_delivery(self, purchasing_client):
+        from production.models import ProductionOrderItem
+        spec = TyreSpecFactory()
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_IN_PROGRESS)
+        ProductionOrderItem.objects.create(order=order, tyre_spec=spec, qty_plan=3000)
+
+        payload = {
+            'date': '2026-05-16', 'note': '',
+            'entries': [{'tyre_spec': spec.pk, 'qty_actual': 1000}],  # baru 1000 dari 3000
+        }
+        res = purchasing_client.post(f'/api/production/orders/{order.pk}/deliveries/', payload, format='json')
+        assert res.status_code == status.HTTP_201_CREATED
+        assert res.data['order_status'] == 'RESULT_SENT'
+        order.refresh_from_db()
+        assert order.status == 'RESULT_SENT'
+
+    def test_done_rejected_when_delivery_incomplete(self, purchasing_client):
+        from production.models import ProductionOrderItem, TyreDelivery, TyreDeliveryEntry
+        spec = TyreSpecFactory()
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_RESULT_SENT)
+        ProductionOrderItem.objects.create(order=order, tyre_spec=spec, qty_plan=3000)
+        delivery = TyreDelivery.objects.create(order=order, date='2026-05-16')
+        TyreDeliveryEntry.objects.create(delivery=delivery, tyre_spec=spec, qty_actual=1000)
+
+        res = purchasing_client.post(f'/api/production/orders/{order.pk}/done/')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.data['shortages'][0]['delivered'] == 1000
+        assert res.data['shortages'][0]['planned'] == 3000
+        order.refresh_from_db()
+        assert order.status == 'RESULT_SENT'
+
+    def test_done_allowed_when_delivery_complete(self, purchasing_client):
+        from production.models import ProductionOrderItem, TyreDelivery, TyreDeliveryEntry
+        spec = TyreSpecFactory()
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_RESULT_SENT)
+        ProductionOrderItem.objects.create(order=order, tyre_spec=spec, qty_plan=3000)
+        delivery = TyreDelivery.objects.create(order=order, date='2026-05-16')
+        TyreDeliveryEntry.objects.create(delivery=delivery, tyre_spec=spec, qty_actual=3000)
+
+        res = purchasing_client.post(f'/api/production/orders/{order.pk}/done/')
+        assert res.status_code == status.HTTP_200_OK
+        order.refresh_from_db()
+        assert order.status == 'DONE'
+
+
+# ── API: Material Shipment — validasi stok tidak boleh minus ──────────────────
+
+@pytest.mark.django_db
+class TestMaterialShipmentStockGuard:
+    def test_shipment_allowed_when_order_result_sent(self, purchasing_client):
+        """Material masih bisa dikirim susulan setelah RESULT_SENT, karena
+        RESULT_SENT sekarang bisa terjadi sebelum produksi benar-benar tuntas
+        (baru kirim sebagian hasil)."""
+        mat = MaterialFactory(kode='SHIP-003', stock=Decimal('50.00'))
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_RESULT_SENT)
+
+        payload = {
+            'date': '2026-05-16',
+            'note': '',
+            'entries': [{'material': mat.pk, 'qty': '10.00'}],
+        }
+        res = purchasing_client.post(
+            f'/api/production/orders/{order.pk}/shipments/', payload, format='json'
+        )
+        assert res.status_code == status.HTTP_201_CREATED
+        mat.refresh_from_db()
+        assert mat.stock == Decimal('40.00')
+
+    def test_shipment_rejects_qty_exceeding_stock(self, purchasing_client):
+        mat = MaterialFactory(kode='SHIP-001', stock=Decimal('5.00'))
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_CONFIRMED)
+
+        payload = {
+            'date': '2026-05-16',
+            'note': '',
+            'entries': [{'material': mat.pk, 'qty': '20.00'}],
+        }
+        res = purchasing_client.post(
+            f'/api/production/orders/{order.pk}/shipments/', payload, format='json'
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+        mat.refresh_from_db()
+        assert mat.stock == Decimal('5.00')  # tidak berubah, tidak minus
+        from production.models import MaterialShipment
+        assert not MaterialShipment.objects.filter(order=order).exists()  # rollback penuh
+
+    def test_shipment_allows_qty_within_stock(self, purchasing_client):
+        mat = MaterialFactory(kode='SHIP-002', stock=Decimal('20.00'))
+        order = ProductionOrderFactory(status=ProductionOrder.STATUS_CONFIRMED)
+
+        payload = {
+            'date': '2026-05-16',
+            'note': '',
+            'entries': [{'material': mat.pk, 'qty': '5.00'}],
+        }
+        res = purchasing_client.post(
+            f'/api/production/orders/{order.pk}/shipments/', payload, format='json'
+        )
+        assert res.status_code == status.HTTP_201_CREATED
+
+        mat.refresh_from_db()
+        assert mat.stock == Decimal('15.00')

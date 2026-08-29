@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, CheckCircle } from 'lucide-react'
 import { getOrders, completeOrder, getDeliveries, getOrderProgress } from '@/api/production'
+import { useToast } from '@/context/ToastContext'
 import type { ProductionOrder } from '@/types'
 
 function formatDate(s: string) {
@@ -20,12 +21,17 @@ function ProgressBar({ value, max, color = 'var(--color-accent-success)' }: { va
 function ResultCard({ order, onRefresh }: { order: ProductionOrder; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const qc = useQueryClient()
+  const { error: toastError } = useToast()
 
   const completeMut = useMutation({
     mutationFn: () => completeOrder(order.id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orders-terima'] })
       onRefresh()
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toastError('Gagal menyelesaikan order', detail ?? 'Periksa kembali data pengiriman hasil')
     },
   })
 

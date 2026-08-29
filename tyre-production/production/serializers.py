@@ -1,3 +1,5 @@
+from django.db import transaction
+from django.db.models import F
 from rest_framework import serializers
 from .models import (
     ProductionOrder, ProductionOrderItem,
@@ -56,9 +58,10 @@ class DailyUsageWriteSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         entries_data = validated_data.pop('entries')
-        daily_usage = DailyUsage.objects.create(**validated_data)
-        for entry in entries_data:
-            DailyUsageEntry.objects.create(daily_usage=daily_usage, **entry)
+        with transaction.atomic():
+            daily_usage = DailyUsage.objects.create(**validated_data)
+            for entry in entries_data:
+                DailyUsageEntry.objects.create(daily_usage=daily_usage, **entry)
         return daily_usage
 
     def update(self, instance, validated_data):
@@ -67,9 +70,17 @@ class DailyUsageWriteSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         if entries_data is not None:
-            instance.entries.all().delete()
-            for entry in entries_data:
-                DailyUsageEntry.objects.create(daily_usage=instance, **entry)
+            from specification.models import Material
+            with transaction.atomic():
+                # Kembalikan dulu stok dari entries lama sebelum dihapus, supaya
+                # edit (bukan hanya create) tidak memotong stok gudang dua kali.
+                for old_entry in instance.entries.all():
+                    Material.objects.filter(pk=old_entry.material_id).update(
+                        stock=F('stock') + old_entry.qty
+                    )
+                instance.entries.all().delete()
+                for entry in entries_data:
+                    DailyUsageEntry.objects.create(daily_usage=instance, **entry)
         return instance
 
 

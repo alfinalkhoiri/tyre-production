@@ -58,7 +58,7 @@ export interface ProductionOrderItem {
   qty_plan: number
 }
 
-export type OrderStatus = 'DRAFT' | 'CONFIRMED' | 'MAT_SENT' | 'IN_PROGRESS' | 'RESULT_SENT' | 'DONE'
+export type OrderStatus = 'DRAFT' | 'CONFIRMED' | 'MAT_SENT' | 'IN_PROGRESS' | 'RESULT_SENT' | 'DONE' | 'REJECTED'
 
 export interface ProductionOrder {
   id: number

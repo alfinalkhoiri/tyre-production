@@ -9,6 +9,7 @@ class ProductionOrder(models.Model):
     STATUS_IN_PROGRESS  = 'IN_PROGRESS'
     STATUS_RESULT_SENT  = 'RESULT_SENT'
     STATUS_DONE         = 'DONE'
+    STATUS_REJECTED     = 'REJECTED'
     STATUS_CHOICES = [
         ('DRAFT',        'Draft'),
         ('CONFIRMED',    'Dikonfirmasi'),
@@ -16,6 +17,7 @@ class ProductionOrder(models.Model):
         ('IN_PROGRESS',  'Sedang Diproduksi'),
         ('RESULT_SENT',  'Hasil Dikirim'),
         ('DONE',         'Selesai'),
+        ('REJECTED',     'Ditolak'),
     ]
 
     SHIFT_1 = '1'

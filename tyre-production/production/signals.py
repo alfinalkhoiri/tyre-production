@@ -2,6 +2,7 @@ from decimal import Decimal
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
 from .models import DailyUsageEntry
 from inventory.models import StockTransaction
 from specification.models import Material
@@ -19,6 +20,11 @@ def auto_create_stock_transaction(sender, instance, created, raw=False, **kwargs
         mat = Material.objects.select_for_update().get(pk=material.pk)
         stock_before = mat.stock
         stock_after = stock_before - qty
+
+        if stock_after < 0:
+            raise ValidationError({
+                'detail': f'Stok {mat.kode} tidak cukup (tersedia {stock_before}, diminta {qty}).'
+            })
 
         StockTransaction.objects.create(
             material=mat,

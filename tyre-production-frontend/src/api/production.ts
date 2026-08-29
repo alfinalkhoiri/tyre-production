@@ -12,6 +12,7 @@ export const createOrder = (data: {
 }) => api.post<ProductionOrder>('/production/orders/', data).then(r => r.data)
 
 export const confirmOrder  = (id: number) => api.post(`/production/orders/${id}/confirm/`).then(r => r.data)
+export const rejectOrder   = (id: number) => api.post(`/production/orders/${id}/reject/`).then(r => r.data)
 export const startOrder    = (id: number) => api.post(`/production/orders/${id}/start/`).then(r => r.data)
 export const completeOrder = (id: number) => api.post(`/production/orders/${id}/done/`).then(r => r.data)
 

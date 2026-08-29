@@ -1,7 +1,9 @@
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
@@ -64,14 +66,47 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
+
+        raw_items = [
+            it for it in request.data.get('items', [])
+            if it.get('tyre_spec') and it.get('qty_plan')
+        ]
+        if not raw_items:
+            return Response(
+                {'detail': 'Minimal 1 item produksi (ukuran ban + qty) harus diisi.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Cek stok material sebelum izin dibuat — jangan biarkan izin baru
+        # lolos kalau material yang dibutuhkan sudah diketahui tidak cukup.
+        unsaved_items = [
+            ProductionOrderItem(tyre_spec_id=it['tyre_spec'], qty_plan=it['qty_plan'])
+            for it in raw_items
+        ]
+        reqs = aggregate_requirements(unsaved_items)
+        shortages = [
+            {
+                'kode':      r['kode'],    'name': r['name'], 'unit': r['unit'],
+                'required':  r['qty_needed'],
+                'stock':     r['stock'],
+                'locked':    r['locked'],
+                'available': r['available'],
+                'shortage':  abs(r['shortage']),
+            }
+            for r in reqs if r['is_short']
+        ]
+        if shortages:
+            return Response(
+                {'detail': 'Stok material tidak mencukupi untuk izin ini. Input stok material terlebih dahulu.',
+                 'shortages': shortages},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         order = ser.save()
-        for item in request.data.get('items', []):
-            tyre_spec_id = item.get('tyre_spec')
-            qty_plan = item.get('qty_plan')
-            if tyre_spec_id and qty_plan:
-                ProductionOrderItem.objects.create(
-                    order=order, tyre_spec_id=tyre_spec_id, qty_plan=qty_plan
-                )
+        for it in raw_items:
+            ProductionOrderItem.objects.create(
+                order=order, tyre_spec_id=it['tyre_spec'], qty_plan=it['qty_plan']
+            )
         order.refresh_from_db()
         return Response(self.get_serializer(order).data, status=status.HTTP_201_CREATED)
 
@@ -119,6 +154,18 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             order.number, request=request, detail={'status': 'CONFIRMED'})
         return Response(ProductionOrderSerializer(order).data)
 
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject(self, request, pk=None):
+        order = self.get_object()
+        if order.status != ProductionOrder.STATUS_DRAFT:
+            return Response({'detail': 'Hanya order DRAFT yang bisa ditolak.'}, status=400)
+
+        order.status = ProductionOrder.STATUS_REJECTED
+        order.save()
+        log(request.user, AuditLog.ACTION_STATUS, 'ProductionOrder', order.pk,
+            order.number, request=request, detail={'status': 'REJECTED'})
+        return Response(ProductionOrderSerializer(order).data)
+
     @action(detail=True, methods=['get'], url_path='requirements')
     def requirements(self, request, pk=None):
         order = self.get_object()
@@ -143,6 +190,30 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         if order.status not in [ProductionOrder.STATUS_IN_PROGRESS, ProductionOrder.STATUS_RESULT_SENT]:
             return Response({'detail': 'Order harus IN_PROGRESS atau RESULT_SENT sebelum diselesaikan.'}, status=400)
+
+        planned: dict = {item.tyre_spec_id: item.qty_plan for item in order.items.select_related('tyre_spec')}
+        delivered: dict = {}
+        for d in order.tyre_deliveries.prefetch_related('entries').all():
+            for e in d.entries.all():
+                delivered[e.tyre_spec_id] = delivered.get(e.tyre_spec_id, 0) + e.qty_actual
+
+        specs_by_id = {item.tyre_spec_id: item.tyre_spec for item in order.items.select_related('tyre_spec')}
+        shortages = [
+            {
+                'tyre_spec_id': sid,
+                'size': specs_by_id[sid].size,
+                'planned': qty,
+                'delivered': delivered.get(sid, 0),
+            }
+            for sid, qty in planned.items() if delivered.get(sid, 0) < qty
+        ]
+        if shortages:
+            return Response(
+                {'detail': 'Hasil produksi belum lengkap dikirim. Kirim sisa hasil sebelum menyelesaikan order.',
+                 'shortages': shortages},
+                status=400
+            )
+
         order.status = ProductionOrder.STATUS_DONE
         order.save()
         # Lepas semua sisa reservation (seharusnya sudah 0, tapi bersihkan jika ada)
@@ -172,29 +243,42 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         if get_role(request.user) not in ('admin', 'purchasing'):
             return Response({'detail': 'Tidak punya izin untuk mengirim material.'}, status=status.HTTP_403_FORBIDDEN)
 
-        if order.status not in [ProductionOrder.STATUS_CONFIRMED, ProductionOrder.STATUS_MAT_SENT, ProductionOrder.STATUS_IN_PROGRESS]:
-            return Response({'detail': 'Order harus CONFIRMED, MAT_SENT, atau IN_PROGRESS untuk mengirim material.'}, status=400)
+        if order.status not in [
+            ProductionOrder.STATUS_CONFIRMED, ProductionOrder.STATUS_MAT_SENT,
+            ProductionOrder.STATUS_IN_PROGRESS, ProductionOrder.STATUS_RESULT_SENT,
+        ]:
+            return Response({'detail': 'Order harus CONFIRMED, MAT_SENT, IN_PROGRESS, atau RESULT_SENT untuk mengirim material.'}, status=400)
 
         ser = MaterialShipmentWriteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        shipment = ser.save(order=order)
 
         # Deduct warehouse stock & release reservation proportionally
         from specification.models import Material as MatModel
         from .models import StockReservation
         from decimal import Decimal
-        for e in shipment.entries.all():
-            MatModel.objects.filter(pk=e.material_id).update(stock=F('stock') - e.qty)
-            try:
-                res = StockReservation.objects.get(order=order, material_id=e.material_id)
-                new_qty = float(res.qty_reserved) - float(e.qty)
-                if new_qty <= 0:
-                    res.delete()
-                else:
-                    res.qty_reserved = Decimal(str(round(new_qty, 2)))
-                    res.save()
-            except StockReservation.DoesNotExist:
-                pass
+
+        with transaction.atomic():
+            shipment = ser.save(order=order)
+
+            for e in shipment.entries.all():
+                # select_for_update mengunci baris material selama transaksi,
+                # supaya dua pengiriman bersamaan tidak sama-sama lolos cek stok.
+                mat = MatModel.objects.select_for_update().get(pk=e.material_id)
+                if mat.stock < e.qty:
+                    raise ValidationError({
+                        'detail': f'Stok {mat.kode} tidak cukup (tersedia {mat.stock}, diminta {e.qty}).'
+                    })
+                MatModel.objects.filter(pk=mat.pk).update(stock=F('stock') - e.qty)
+                try:
+                    res = StockReservation.objects.get(order=order, material_id=e.material_id)
+                    new_qty = float(res.qty_reserved) - float(e.qty)
+                    if new_qty <= 0:
+                        res.delete()
+                    else:
+                        res.qty_reserved = Decimal(str(round(new_qty, 2)))
+                        res.save()
+                except StockReservation.DoesNotExist:
+                    pass
 
         order.refresh_from_db()
         return Response({
@@ -275,16 +359,11 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         }, status=201)
 
     def _check_delivery_completion(self, order):
-        planned: dict = {item.tyre_spec_id: item.qty_plan for item in order.items.all()}
-        delivered: dict = {}
-        for d in order.tyre_deliveries.prefetch_related('entries').all():
-            for e in d.entries.all():
-                delivered[e.tyre_spec_id] = delivered.get(e.tyre_spec_id, 0) + e.qty_actual
-
-        if planned and all(delivered.get(sid, 0) >= qty for sid, qty in planned.items()):
-            if order.status == ProductionOrder.STATUS_IN_PROGRESS:
-                order.status = ProductionOrder.STATUS_RESULT_SENT
-                order.save()
+        # Pindah ke RESULT_SENT segera setelah kiriman hasil pertama,
+        # tanpa menunggu 100% target terpenuhi (hasil bisa dikirim bertahap).
+        if order.status == ProductionOrder.STATUS_IN_PROGRESS:
+            order.status = ProductionOrder.STATUS_RESULT_SENT
+            order.save()
 
     # ── Production stock summary ──────────────────────────────────────────────
 

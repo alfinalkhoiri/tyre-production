@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, ChevronDown, ChevronRight, AlertTriangle, Truck, Package, CheckCircle } from 'lucide-react'
 import {
-  getOrders, createOrder, confirmOrder, completeOrder,
+  getOrders, createOrder, confirmOrder, rejectOrder, completeOrder,
   getShipments, addShipment, getDeliveries, getOrderProgress,
   getRequirements, getOrderYield,
 } from '@/api/production'
@@ -23,7 +23,7 @@ function fmt(n: number) { return n % 1 === 0 ? String(n) : n.toFixed(2) }
 
 const STATUS_STEPS = ['Dibuat', 'Mat. Dikirim', 'Mat. Diterima', 'Diproduksi', 'Hasil Dikirim', 'Selesai']
 function getStepIndex(s: OrderStatus) {
-  return { DRAFT: 0, CONFIRMED: 1, MAT_SENT: 2, IN_PROGRESS: 3, RESULT_SENT: 4, DONE: 5 }[s] ?? 0
+  return { DRAFT: 0, CONFIRMED: 1, MAT_SENT: 2, IN_PROGRESS: 3, RESULT_SENT: 4, DONE: 5, REJECTED: 0 }[s] ?? 0
 }
 
 const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
@@ -33,6 +33,7 @@ const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
   IN_PROGRESS: { cls: 'chip-warning',  label: 'Diproduksi' },
   RESULT_SENT: { cls: 'chip-info',     label: 'Hasil Dikirim' },
   DONE:        { cls: 'chip-success',  label: 'Selesai' },
+  REJECTED:    { cls: 'chip-danger',   label: 'Ditolak' },
 }
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ function MaterialShipmentSection({ order, progress, onRefresh }: {
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
           <Truck size={12} /> Pengiriman Material
         </div>
-        {['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS'].includes(order.status) && !allReceived && (
+        {['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT'].includes(order.status) && !allReceived && (
           <button className="btn btn-b btn-sm" onClick={() => setShowModal(true)}>
             <Plus size={11} /> Kirim Material
           </button>
@@ -465,6 +466,7 @@ function PermitCard({ order }: { order: ProductionOrder }) {
   const [expanded, setExpanded] = useState(false)
   const [shortages, setShortages] = useState<Shortage[]>([])
   const [confirmComplete, setConfirmComplete] = useState(false)
+  const [confirmReject, setConfirmReject] = useState(false)
   const qc = useQueryClient()
   const { success, error: toastError } = useToast()
 
@@ -483,10 +485,18 @@ function PermitCard({ order }: { order: ProductionOrder }) {
       else toastError('Konfirmasi gagal', 'Periksa stok material')
     },
   })
+  const rejectMut = useMutation({
+    mutationFn: () => rejectOrder(order.id),
+    onSuccess: () => { invalidate(); success('Order ditolak', `${order.number} ditandai ditolak`) },
+    onError: () => toastError('Gagal menolak order'),
+  })
   const completeMut = useMutation({
     mutationFn: () => completeOrder(order.id),
     onSuccess: () => { invalidate(); success('Order selesai', `${order.number} telah diselesaikan`) },
-    onError: () => toastError('Gagal menyelesaikan order'),
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toastError('Gagal menyelesaikan order', detail ?? 'Periksa kembali data pengiriman hasil')
+    },
   })
 
   const { data: progress } = useQuery({
@@ -528,9 +538,24 @@ function PermitCard({ order }: { order: ProductionOrder }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           {order.status === 'DRAFT' && (
-            <button className="btn btn-b btn-sm" onClick={e => { e.stopPropagation(); setShortages([]); confirmMut.mutate() }} disabled={confirmMut.isLoading}>
-              {confirmMut.isLoading ? '...' : 'Konfirmasi'}
-            </button>
+            <>
+              <ConfirmDialog
+                open={confirmReject}
+                onOpenChange={setConfirmReject}
+                title="Tolak Izin Produksi?"
+                description={`Order ${order.number} akan ditandai ditolak. Aksi ini tidak dapat dibatalkan.`}
+                confirmLabel="Ya, Tolak"
+                variant="danger"
+                loading={rejectMut.isLoading}
+                onConfirm={() => rejectMut.mutate()}
+              />
+              <button className="btn btn-d btn-sm" onClick={e => { e.stopPropagation(); setConfirmReject(true) }} disabled={rejectMut.isLoading}>
+                {rejectMut.isLoading ? '...' : 'Tolak'}
+              </button>
+              <button className="btn btn-b btn-sm" onClick={e => { e.stopPropagation(); setShortages([]); confirmMut.mutate() }} disabled={confirmMut.isLoading}>
+                {confirmMut.isLoading ? '...' : 'Konfirmasi'}
+              </button>
+            </>
           )}
           {order.status === 'RESULT_SENT' && (
             <>
@@ -555,7 +580,11 @@ function PermitCard({ order }: { order: ProductionOrder }) {
 
       {/* Step Flow */}
       <div style={{ marginTop: '10px' }}>
-        <StepFlow activeIndex={getStepIndex(order.status)} />
+        {order.status === 'REJECTED' ? (
+          <div className="alert alert-danger" style={{ fontSize: 12 }}>Izin produksi ini ditolak dan tidak dilanjutkan.</div>
+        ) : (
+          <StepFlow activeIndex={getStepIndex(order.status)} />
+        )}
       </div>
 
       {/* Shortage alert */}
@@ -632,7 +661,7 @@ function PermitCard({ order }: { order: ProductionOrder }) {
               )}
 
               {/* Material Shipment */}
-              {['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS'].includes(order.status) && progress && (
+              {['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT'].includes(order.status) && progress && (
                 <MaterialShipmentSection order={order} progress={progress.material_progress} onRefresh={handleRefresh} />
               )}
 
@@ -672,6 +701,7 @@ function AddIzinForm({ tyreSpecs, onClose }: { tyreSpecs: TyreSpec[]; onClose: (
   const [pic, setPic]       = useState('')
   const [items, setItems]   = useState<ItemRow[]>([{ tyre_spec: '', qty_plan: '' }])
   const [error, setError]   = useState('')
+  const [shortages, setShortages] = useState<Shortage[]>([])
 
   const mutation = useMutation({
     mutationFn: () => createOrder({
@@ -684,9 +714,17 @@ function AddIzinForm({ tyreSpecs, onClose }: { tyreSpecs: TyreSpec[]; onClose: (
       success('Izin produksi dibuat', `Order ${number} berhasil disimpan`)
       onClose()
     },
-    onError: () => {
-      setError('Gagal membuat izin. Periksa data.')
-      toastError('Gagal membuat izin produksi')
+    onError: (err: unknown) => {
+      setShortages([])
+      const data = (err as { response?: { data?: { detail?: string; shortages?: Shortage[] } } })?.response?.data
+      if (data?.shortages) {
+        setShortages(data.shortages)
+        setError(data.detail ?? 'Stok material tidak mencukupi.')
+        toastError('Izin ditolak', 'Input stok material terlebih dahulu')
+      } else {
+        setError('Gagal membuat izin. Periksa data.')
+        toastError('Gagal membuat izin produksi')
+      }
     },
   })
 
@@ -694,6 +732,22 @@ function AddIzinForm({ tyreSpecs, onClose }: { tyreSpecs: TyreSpec[]; onClose: (
 
   // Live material requirements calculation
   const matReqs = useMemo(() => computeRequirements(items, tyreSpecs), [items, tyreSpecs])
+
+  const handleSubmit = () => {
+    setShortages([])
+    const incomplete = items.some(it => (it.tyre_spec && !it.qty_plan) || (!it.tyre_spec && it.qty_plan))
+    if (incomplete) {
+      setError('Lengkapi ukuran ban dan qty pada setiap baris (qty wajib diisi).')
+      return
+    }
+    const validItems = items.filter(it => it.tyre_spec && it.qty_plan)
+    if (validItems.length === 0) {
+      setError('Minimal 1 item produksi (ukuran ban + qty) harus diisi.')
+      return
+    }
+    setError('')
+    mutation.mutate()
+  }
 
   return (
     <div className="card" style={{ padding: '18px', marginBottom: '14px' }}>
@@ -725,9 +779,9 @@ function AddIzinForm({ tyreSpecs, onClose }: { tyreSpecs: TyreSpec[]; onClose: (
             <option value="">Pilih ukuran ban...</option>
             {tyreSpecs.map(ts => <option key={ts.id} value={ts.id}>{ts.size} — {ts.model}</option>)}
           </select>
-          <input className="form-input" type="number" min="1" value={row.qty_plan}
+          <input className="form-input" type="number" min="1" required value={row.qty_plan}
             onChange={e => setItems(p => p.map((r, idx) => idx === i ? { ...r, qty_plan: e.target.value } : r))}
-            placeholder="Qty" />
+            placeholder="Qty *" />
           <button className="btn btn-d btn-sm" style={{ padding: '7px' }} onClick={() => setItems(p => p.filter((_, idx) => idx !== i))}>✕</button>
         </div>
       ))}
@@ -746,9 +800,31 @@ function AddIzinForm({ tyreSpecs, onClose }: { tyreSpecs: TyreSpec[]; onClose: (
         </div>
       )}
 
+      {shortages.length > 0 && (
+        <div className="alert alert-danger" style={{ marginTop: 10 }}>
+          <AlertTriangle size={13} />
+          <div style={{ flex: 1 }}>
+            <strong>Stok tidak cukup — input stok material dahulu.</strong> {shortages.length} material kekurangan:
+            <table className="tbl" style={{ marginTop: 8 }}>
+              <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Dibutuhkan</th><th style={{ textAlign: 'right' }}>Tersedia</th><th style={{ textAlign: 'right' }}>Kurang</th></tr></thead>
+              <tbody>
+                {shortages.map(s => (
+                  <tr key={s.kode} style={{ background: 'var(--color-background-danger)' }}>
+                    <td><strong>{s.name}</strong> <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>{s.kode}</span></td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(s.required)} {s.unit}</td>
+                    <td style={{ textAlign: 'right', color: 'var(--color-text-danger)' }}>{fmt(s.available)} {s.unit}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-text-danger)' }}>-{fmt(s.shortage)} {s.unit}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {error && <div className="alert alert-danger" style={{ margin: '10px 0', fontSize: 12 }}>{error}</div>}
       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-        <button className="btn btn-p btn-sm" onClick={() => mutation.mutate()} disabled={mutation.isLoading || !number}>
+        <button className="btn btn-p btn-sm" onClick={handleSubmit} disabled={mutation.isLoading || !number}>
           {mutation.isLoading ? 'Menyimpan...' : 'Buat Izin'}
         </button>
         <button className="btn btn-ghost btn-sm" onClick={onClose}>Batal</button>
@@ -807,7 +883,7 @@ export function IzinPage() {
       </div>
 
       <div className="filter-pills" style={{ marginBottom: '12px' }}>
-        {(['SEMUA', 'DRAFT', 'CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT', 'DONE'] as const).map(s => (
+        {(['SEMUA', 'DRAFT', 'CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT', 'DONE', 'REJECTED'] as const).map(s => (
           <button key={s} className={`filter-pill ${filterStatus === s ? 'active' : ''}`} onClick={() => { setFilterStatus(s); setPage(1) }}>
             {s === 'SEMUA' ? 'Semua' : (STATUS_CHIP[s]?.label ?? s)}
             {s !== 'SEMUA' && <span style={{ marginLeft: 4, opacity: 0.7 }}>({countBy(s)})</span>}

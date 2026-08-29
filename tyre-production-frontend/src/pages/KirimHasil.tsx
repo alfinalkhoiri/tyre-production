@@ -280,7 +280,7 @@ function OrderCard({ order, onRefresh }: { order: ProductionOrder; onRefresh: ()
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-          {order.status === 'IN_PROGRESS' && !allDone && (
+          {['IN_PROGRESS', 'RESULT_SENT'].includes(order.status) && !allDone && (
             <button className="btn btn-b btn-sm" onClick={e => { e.stopPropagation(); setExpanded(true); setShowModal(true) }}>
               <Plus size={11} /> Kirim Hasil
             </button>
