@@ -39,6 +39,7 @@ class UserManageSerializer(serializers.ModelSerializer):
             profile, _ = UserProfile.objects.get_or_create(user=instance)
             profile.role = role
             profile.save()
+            instance.profile = profile  # buang cache relasi lama supaya to_representation tidak stale
         return instance
 
 
@@ -89,6 +90,11 @@ class ChangePasswordSerializer(serializers.Serializer):
         if not user.check_password(value):
             raise serializers.ValidationError('Password lama tidak sesuai.')
         return value
+
+
+class AdminSetPasswordSerializer(serializers.Serializer):
+    """Admin mengatur ulang password user lain, tanpa perlu tahu password lama."""
+    new_password = serializers.CharField(write_only=True, min_length=8)
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

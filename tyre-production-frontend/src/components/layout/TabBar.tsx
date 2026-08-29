@@ -18,6 +18,7 @@ const TAB_SPEC:      FlatTab = { to: '/spec',      label: 'Spesifikasi', end: fa
 const TAB_ANALYTICS: FlatTab = { to: '/analytics', label: 'Analitik',   end: false, badgeKey: null }
 const TAB_FORECAST:  FlatTab = { to: '/forecast',  label: 'Estimasi Kebutuhan', end: false, badgeKey: null }
 const TAB_AUDIT:     FlatTab = { to: '/audit',     label: 'Audit Log',  end: false, badgeKey: null }
+const TAB_USERS:     FlatTab = { to: '/users',     label: 'Kelola User', end: false, badgeKey: null }
 
 const GUDANG_ITEMS: FlatTab[] = [
   { to: '/stok',   label: 'Stok Material', end: false, badgeKey: null },
@@ -32,7 +33,7 @@ const PRODUKSI_ITEMS: FlatTab[] = [
 ]
 
 const NAV: Record<string, NavItem[]> = {
-  admin:      [TAB_DASHBOARD, TAB_SPEC, { group: 'Purchasing', items: GUDANG_ITEMS }, { group: 'Operator', items: PRODUKSI_ITEMS }, TAB_ANALYTICS, TAB_FORECAST, TAB_AUDIT],
+  admin:      [TAB_DASHBOARD, TAB_SPEC, { group: 'Purchasing', items: GUDANG_ITEMS }, { group: 'Operator', items: PRODUKSI_ITEMS }, TAB_ANALYTICS, TAB_FORECAST, TAB_AUDIT, TAB_USERS],
   purchasing: [TAB_DASHBOARD, TAB_SPEC, ...GUDANG_ITEMS, TAB_ANALYTICS, TAB_FORECAST],
   operator:   [TAB_DASHBOARD, TAB_SPEC, ...PRODUKSI_ITEMS, TAB_ANALYTICS],
   viewer:     [TAB_DASHBOARD, TAB_SPEC, TAB_ANALYTICS, TAB_FORECAST],

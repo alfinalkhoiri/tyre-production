@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -12,7 +13,7 @@ from .audit import log
 from .models import AuditLog
 from .serializers import (
     UserSerializer, UserManageSerializer,
-    RegisterSerializer, ChangePasswordSerializer,
+    RegisterSerializer, ChangePasswordSerializer, AdminSetPasswordSerializer,
     CustomTokenObtainPairSerializer,
     AuditLogSerializer,
 )
@@ -133,15 +134,41 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAdminRole]
 
     def perform_update(self, serializer):
+        new_role = serializer.validated_data.get('role')
+        if serializer.instance.pk == self.request.user.pk and new_role and new_role != 'admin':
+            raise ValidationError({'detail': 'Tidak bisa mengubah role akun sendiri dari admin.'})
         serializer.save()
         log(self.request.user, AuditLog.ACTION_UPDATE, 'User',
             serializer.instance.pk, serializer.instance.username,
             request=self.request)
 
     def perform_destroy(self, instance):
+        if instance.pk == self.request.user.pk:
+            raise ValidationError({'detail': 'Tidak bisa menghapus akun sendiri.'})
         log(self.request.user, AuditLog.ACTION_DELETE, 'User',
             instance.pk, instance.username, request=self.request)
         instance.delete()
+
+
+@extend_schema(
+    summary='Admin mengatur ulang password user lain (admin only)',
+    description='Tidak memerlukan password lama, hanya untuk admin.',
+    tags=['Auth'],
+    request=AdminSetPasswordSerializer,
+    responses={200: {'type': 'object', 'properties': {'detail': {'type': 'string'}}}},
+)
+class AdminSetPasswordView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, pk):
+        target = generics.get_object_or_404(User, pk=pk)
+        serializer = AdminSetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        target.set_password(serializer.validated_data['new_password'])
+        target.save()
+        log(request.user, AuditLog.ACTION_UPDATE, 'User', target.pk,
+            target.username, request=request, detail={'action': 'admin_set_password'})
+        return Response({'detail': 'Password berhasil diubah.'})
 
 
 @extend_schema(

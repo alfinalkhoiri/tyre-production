@@ -18,6 +18,7 @@ const KirimHasil    = lazy(() => import('@/pages/KirimHasil').then(m => ({ defau
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })))
 const ForecastPage  = lazy(() => import('@/pages/ForecastPage').then(m => ({ default: m.ForecastPage })))
 const AuditLogPage  = lazy(() => import('@/pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })))
+const UsersPage     = lazy(() => import('@/pages/UsersPage').then(m => ({ default: m.UsersPage })))
 
 function PageLoader() {
   return (
@@ -98,6 +99,11 @@ export default function App() {
           <Route path="audit" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <Suspense fallback={<PageLoader />}><AuditLogPage /></Suspense>
+            </ProtectedRoute>
+          } />
+          <Route path="users" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <Suspense fallback={<PageLoader />}><UsersPage /></Suspense>
             </ProtectedRoute>
           } />
         </Route>

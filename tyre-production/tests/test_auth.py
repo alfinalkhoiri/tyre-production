@@ -17,6 +17,13 @@ def _login(client, username='testuser', password='testpass123'):
     return user, res
 
 
+def _login_admin(client, username='adminuser', password='testpass123'):
+    user, res = _login(client, username, password)
+    user.profile.role = 'admin'
+    user.profile.save()
+    return user, res
+
+
 @pytest.mark.django_db
 class TestLogin:
     def test_valid_credentials_return_tokens(self, client):
@@ -129,3 +136,91 @@ class TestRegisterPermission:
         })
         # user biasa (is_staff=False) tidak bisa register user baru
         assert res.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_admin_can_register_user(self, client):
+        _, login_res = _login_admin(client)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.post('/api/auth/register/', {
+            'username': 'newuser2', 'password': 'pass12345', 'role': 'operator',
+        })
+        assert res.status_code == status.HTTP_201_CREATED
+
+
+@pytest.mark.django_db
+class TestUserManagement:
+    def test_list_users_requires_admin(self, client):
+        _, login_res = _login(client)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.get('/api/auth/users/')
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_admin_can_list_users(self, client):
+        _, login_res = _login_admin(client)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.get('/api/auth/users/')
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_admin_can_update_other_user_role(self, client):
+        admin, login_res = _login_admin(client)
+        other = UserFactory(username='otheruser')
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.patch(f'/api/auth/users/{other.pk}/', {'role': 'operator'})
+        assert res.status_code == status.HTTP_200_OK
+        assert res.data['role'] == 'operator'  # response tidak boleh stale
+        other.profile.refresh_from_db()
+        assert other.profile.role == 'operator'
+
+    def test_admin_cannot_demote_own_role(self, client):
+        admin, login_res = _login_admin(client)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.patch(f'/api/auth/users/{admin.pk}/', {'role': 'viewer'})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        admin.profile.refresh_from_db()
+        assert admin.profile.role == 'admin'
+
+    def test_admin_cannot_delete_own_account(self, client):
+        admin, login_res = _login_admin(client)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.delete(f'/api/auth/users/{admin.pk}/')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_admin_can_delete_other_user(self, client):
+        from django.contrib.auth.models import User
+        _, login_res = _login_admin(client)
+        other = UserFactory(username='deleteme')
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.delete(f'/api/auth/users/{other.pk}/')
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(pk=other.pk).exists()
+
+
+@pytest.mark.django_db
+class TestAdminSetPassword:
+    def test_requires_admin(self, client):
+        _, login_res = _login(client)
+        other = UserFactory(username='target1')
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.post(f'/api/auth/users/{other.pk}/set-password/', {
+            'new_password': 'newSecure456!',
+        })
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_admin_can_reset_other_user_password(self, client):
+        _, login_res = _login_admin(client)
+        other = UserFactory(username='target2', password='oldpass123')
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.post(f'/api/auth/users/{other.pk}/set-password/', {
+            'new_password': 'newSecure456!',
+        })
+        assert res.status_code == status.HTTP_200_OK
+
+        # tidak perlu tahu password lama — login pakai password baru harus berhasil
+        res2 = client.post('/api/auth/login/', {'username': 'target2', 'password': 'newSecure456!'})
+        assert res2.status_code == status.HTTP_200_OK
+
+    def test_rejects_short_password(self, client):
+        _, login_res = _login_admin(client)
+        other = UserFactory(username='target3')
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_res.data["access"]}')
+        res = client.post(f'/api/auth/users/{other.pk}/set-password/', {'new_password': 'short'})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
