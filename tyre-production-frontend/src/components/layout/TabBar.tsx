@@ -28,9 +28,10 @@ const GUDANG_ITEMS: FlatTab[] = [
 ]
 
 const PRODUKSI_ITEMS: FlatTab[] = [
-  { to: '/stok-prod', label: 'Stok Produksi', end: false, badgeKey: null },
-  { to: '/material',  label: 'Material',      end: false, badgeKey: 'pending_shipments' },
-  { to: '/kirim',     label: 'Kirim Hasil',   end: false, badgeKey: null },
+  { to: '/stok-prod',        label: 'Stok Produksi',        end: false, badgeKey: null },
+  { to: '/report-stok-prod', label: 'Report Stok Produksi', end: false, badgeKey: null },
+  { to: '/material',         label: 'Material',             end: false, badgeKey: 'pending_shipments' },
+  { to: '/kirim',            label: 'Kirim Hasil',          end: false, badgeKey: null },
 ]
 
 const NAV: Record<string, NavItem[]> = {
