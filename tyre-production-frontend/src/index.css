@@ -232,3 +232,16 @@
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+/* ── PRINT ── */
+.print-only { display: none; }
+@media print {
+  header, nav { display: none !important; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  main { padding: 0 !important; max-width: none !important; }
+  body { background: #fff !important; }
+  .tbl { font-size: 11px; }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
+}

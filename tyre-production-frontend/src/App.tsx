@@ -10,6 +10,7 @@ import { DashboardPage }  from '@/pages/DashboardPage'
 // Lazy loaded — heavy pages loaded on demand
 const SpecPage      = lazy(() => import('@/pages/SpecPage').then(m => ({ default: m.SpecPage })))
 const StokPage      = lazy(() => import('@/pages/StokPage').then(m => ({ default: m.StokPage })))
+const ReportStokPage = lazy(() => import('@/pages/ReportStokPage').then(m => ({ default: m.ReportStokPage })))
 const IzinPage      = lazy(() => import('@/pages/IzinPage').then(m => ({ default: m.IzinPage })))
 const TerimaHasil   = lazy(() => import('@/pages/TerimaHasil').then(m => ({ default: m.TerimaHasil })))
 const StokProdPage  = lazy(() => import('@/pages/StokProdPage').then(m => ({ default: m.StokProdPage })))
@@ -65,6 +66,11 @@ export default function App() {
           <Route path="stok" element={
             <ProtectedRoute allowedRoles={['admin', 'purchasing']}>
               <Suspense fallback={<PageLoader />}><StokPage /></Suspense>
+            </ProtectedRoute>
+          } />
+          <Route path="report-stok" element={
+            <ProtectedRoute allowedRoles={['admin', 'purchasing']}>
+              <Suspense fallback={<PageLoader />}><ReportStokPage /></Suspense>
             </ProtectedRoute>
           } />
           <Route path="izin" element={

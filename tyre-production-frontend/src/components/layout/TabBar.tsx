@@ -21,9 +21,10 @@ const TAB_AUDIT:     FlatTab = { to: '/audit',     label: 'Audit Log',  end: fal
 const TAB_USERS:     FlatTab = { to: '/users',     label: 'Kelola User', end: false, badgeKey: null }
 
 const GUDANG_ITEMS: FlatTab[] = [
-  { to: '/stok',   label: 'Stok Material', end: false, badgeKey: null },
-  { to: '/izin',   label: 'Izin Produksi', end: false, badgeKey: null },
-  { to: '/terima', label: 'Terima Hasil',  end: false, badgeKey: 'result_sent' },
+  { to: '/stok',        label: 'Stok Material', end: false, badgeKey: null },
+  { to: '/report-stok', label: 'Report Stok',   end: false, badgeKey: null },
+  { to: '/izin',        label: 'Izin Produksi', end: false, badgeKey: null },
+  { to: '/terima',      label: 'Terima Hasil',  end: false, badgeKey: 'result_sent' },
 ]
 
 const PRODUKSI_ITEMS: FlatTab[] = [
