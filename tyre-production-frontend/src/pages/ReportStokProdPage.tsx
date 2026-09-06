@@ -5,6 +5,13 @@ import { getProdStock } from '@/api/production'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import type { ProdStockItem } from '@/types'
 
+// Versi cetak/ekspor dari data yang sama dengan StokProdPage.tsx (rumus
+// status disamakan persis) — lihat komentar lebih lengkap di ReportStokPage.tsx
+// (halaman kembarannya untuk stok gudang), pola & alasan desainnya sama.
+// `received`/`used`/`balance` datang langsung dari backend (action `prod_stock`
+// di production/views.py) — sudah dihitung server, di sini cuma menentukan
+// LABEL status-nya dari angka tersebut.
+
 function formatNum(n: number, d = 2) {
   return n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d })
 }

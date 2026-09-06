@@ -16,11 +16,34 @@ import type {
   OrderStatus, MaterialRequirement, MaterialShipment, OrderYield,
 } from '@/types'
 
+// ═══════════════════════════════════════════════════════════════════════════
+// HALAMAN IZIN PRODUKSI — sisi "gudang" dari alur (backend: lihat komentar
+// besar di production/models.py dan production/views.py untuk state machine
+// lengkapnya). Struktur file ini dari bawah ke atas:
+//
+//   IzinPage (export utama)      -> ambil daftar order + render list
+//     └─ AddIzinForm             -> form bikin izin baru
+//     └─ PermitCard (per order)  -> 1 card per izin, expand untuk detail
+//          ├─ StepFlow                 -> visual "tangga" status
+//          ├─ MaterialShipmentSection  -> kirim & pantau material
+//          │    └─ ShipmentModal
+//          ├─ TyreDeliverySection      -> pantau hasil (kirim aslinya di
+//          │                             halaman KirimHasil, sisi produksi)
+//          └─ YieldSection             -> analisis efisiensi (saat DONE)
+//
+// Setiap tombol aksi (Konfirmasi/Tolak/Kirim Material/Tandai Selesai) manggil
+// endpoint di production/views.py lewat fungsi-fungsi di @/api/production.
+// ═══════════════════════════════════════════════════════════════════════════
+
 function formatDate(s: string) {
   return new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 function fmt(n: number) { return n % 1 === 0 ? String(n) : n.toFixed(2) }
 
+// Urutan visual step di bar horizontal (StepFlow). Peta status backend -> index
+// step: makin besar index, makin ke kanan lingkaran yang "aktif"/tercentang.
+// REJECTED sengaja dipetakan ke 0 tapi tidak pernah dipakai — begitu status
+// REJECTED, PermitCard menampilkan pesan khusus, bukan StepFlow (lihat di bawah).
 const STATUS_STEPS = ['Dibuat', 'Mat. Dikirim', 'Mat. Diterima', 'Diproduksi', 'Hasil Dikirim', 'Selesai']
 function getStepIndex(s: OrderStatus) {
   return { DRAFT: 0, CONFIRMED: 1, MAT_SENT: 2, IN_PROGRESS: 3, RESULT_SENT: 4, DONE: 5, REJECTED: 0 }[s] ?? 0
@@ -38,6 +61,9 @@ const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
+// Bar "tangga" status di tiap card order: lingkaran ber-centang untuk step
+// yang sudah lewat (i < activeIndex), lingkaran solid untuk step SEKARANG
+// (i === activeIndex), sisanya abu-abu. Cuma tampilan — tidak ada logika bisnis.
 function StepFlow({ activeIndex }: { activeIndex: number }) {
   return (
     <div>
@@ -80,6 +106,10 @@ function ProgressBar({ value, max, color = 'var(--color-accent-primary)' }: { va
   )
 }
 
+// Modal generik (overlay gelap + kotak putih di tengah) dipakai ulang oleh
+// ShipmentModal dan modal lain di file-file sejenis (KirimHasil.tsx, dst).
+// Klik area gelap di luar kotak (bukan di dalam kotak) akan menutup modal —
+// itu logika `if (e.target === e.currentTarget)` di bawah.
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div style={{
@@ -98,6 +128,11 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 // ── Client-side requirements computation (for create form) ────────────────────
+// Versi RINGAN dari aggregate_requirements() di backend (production/utils.py)
+// — dijalankan di browser tanpa request ke server, cuma untuk PREVIEW cepat
+// "kira-kira butuh material apa saja" saat user masih mengisi form Buat Izin.
+// Sengaja TIDAK mengecek stok gudang (itu wewenang backend saat submit) —
+// murni hitung BOM × qty_plan.
 
 interface ReqRow { name: string; kode: string; unit: string; qty_needed: number }
 interface ItemRow { tyre_spec: string; qty_plan: string }
@@ -127,6 +162,9 @@ function computeRequirements(items: ItemRow[], tyreSpecs: TyreSpec[]): ReqRow[] 
 }
 
 // ── Material Shipment Section ─────────────────────────────────────────────────
+// Form untuk gudang mengirim material ke lantai produksi. `progress` (dikirim
+// dari PermitCard, hasil endpoint GET .../progress/) dipakai untuk menampilkan
+// "sisa yang masih dibutuhkan" per material sebagai panduan qty yang diisi.
 
 function ShipmentModal({ order, progress, onDone }: {
   order: ProductionOrder
@@ -146,6 +184,8 @@ function ShipmentModal({ order, progress, onDone }: {
   })
 
   const save = async () => {
+    // `progress` cuma punya `kode` material (bukan id numeriknya), jadi perlu
+    // di-lookup dulu id-nya lewat detail order (yang punya BOM lengkap per item).
     const matIdMap: Record<string, number> = {}
     for (const item of orderDetail?.items ?? []) {
       for (const bom of item.tyre_spec_detail?.bom_items ?? []) {
@@ -154,13 +194,16 @@ function ShipmentModal({ order, progress, onDone }: {
     }
     const entries = progress
       .map(p => ({ material: matIdMap[p.kode], qty: parseFloat(qtyMap[p.kode] || '0') }))
-      .filter(e => e.material && e.qty > 0)
+      .filter(e => e.material && e.qty > 0)  // baris yang qty-nya 0/kosong tidak dikirim
 
     if (!entries.length) { setError('Isi minimal 1 qty material'); return }
     setSaving(true); setError('')
     try {
+      // addShipment() -> POST /production/orders/{id}/shipments/ (lihat
+      // production/views.py: action `shipments`). Backend yang benar-benar
+      // memvalidasi stok cukup/tidak — di sini cuma kirim niat/qty saja.
       const res = await addShipment(order.id, { date, note, entries })
-      onDone(res.order_status)
+      onDone(res.order_status)  // status order bisa berubah (mis. CONFIRMED -> MAT_SENT nanti setelah dikonfirmasi produksi)
     } catch { setError('Gagal menyimpan pengiriman') }
     finally { setSaving(false) }
   }
@@ -459,24 +502,38 @@ function YieldSection({ orderId }: { orderId: number }) {
 }
 
 // ── Permit Card ───────────────────────────────────────────────────────────────
+// Satu PermitCard = satu izin produksi di dalam daftar. Ini komponen paling
+// penting di halaman ini: berdasarkan `order.status`, ia memutuskan tombol
+// aksi apa yang muncul (Konfirmasi/Tolak di DRAFT, Tandai Selesai di
+// RESULT_SENT) dan section apa yang ditampilkan saat card di-expand.
 
 interface Shortage { kode: string; name: string; unit: string; required: number; available: number; shortage: number }
 
 function PermitCard({ order }: { order: ProductionOrder }) {
-  const [expanded, setExpanded] = useState(false)
-  const [shortages, setShortages] = useState<Shortage[]>([])
-  const [confirmComplete, setConfirmComplete] = useState(false)
-  const [confirmReject, setConfirmReject] = useState(false)
+  const [expanded, setExpanded] = useState(false)            // buka/tutup detail card
+  const [shortages, setShortages] = useState<Shortage[]>([]) // diisi kalau confirm() gagal krn stok kurang
+  const [confirmComplete, setConfirmComplete] = useState(false) // buka/tutup dialog konfirmasi "Tandai Selesai"
+  const [confirmReject, setConfirmReject] = useState(false)     // buka/tutup dialog konfirmasi "Tolak"
   const qc = useQueryClient()
   const { success, error: toastError } = useToast()
 
+  // Dipanggil setiap kali sebuah aksi berhasil mengubah status order:
+  // "invalidate" cache React Query supaya data di-fetch ulang dari server
+  // (bukan diedit manual di state lokal) — jadi seluruh UI (list, metrik,
+  // badge) otomatis ikut update konsisten.
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['orders'] })
     qc.invalidateQueries({ queryKey: ['order-progress', order.id] })
     setShortages([])
   }
 
+  // useMutation (React Query) = pembungkus untuk aksi yang MENGUBAH data
+  // (POST/PATCH/DELETE), beda dari useQuery yang untuk BACA data. Menyediakan
+  // status `isLoading` otomatis dan callback `onSuccess`/`onError`.
   const confirmMut = useMutation({
+    // -> POST .../confirm/ (production/views.py). Kalau backend menolak
+    // karena stok kurang, response error-nya membawa daftar `shortages`
+    // yang ditangkap di onError untuk ditampilkan sebagai tabel di card.
     mutationFn: () => confirmOrder(order.id),
     onSuccess: () => { invalidate(); success('Order dikonfirmasi', `${order.number} siap kirim material`) },
     onError: (err: unknown) => {
@@ -486,11 +543,13 @@ function PermitCard({ order }: { order: ProductionOrder }) {
     },
   })
   const rejectMut = useMutation({
-    mutationFn: () => rejectOrder(order.id),
+    mutationFn: () => rejectOrder(order.id),  // -> POST .../reject/
     onSuccess: () => { invalidate(); success('Order ditolak', `${order.number} ditandai ditolak`) },
     onError: () => toastError('Gagal menolak order'),
   })
   const completeMut = useMutation({
+    // -> POST .../done/. Backend menolak (400) kalau hasil produksi belum
+    // 100% terkirim — pesannya ditampilkan lewat toast di bawah.
     mutationFn: () => completeOrder(order.id),
     onSuccess: () => { invalidate(); success('Order selesai', `${order.number} telah diselesaikan`) },
     onError: (err: unknown) => {
@@ -499,6 +558,10 @@ function PermitCard({ order }: { order: ProductionOrder }) {
     },
   })
 
+  // Data-data di bawah cuma di-fetch kalau card sedang di-expand (`enabled:
+  // expanded && ...`) — supaya tidak boros request untuk card yang tertutup.
+  // `progress` (material + tyre) berguna untuk status selain DRAFT/REJECTED;
+  // `requirements` (preview kebutuhan material) cuma relevan saat masih DRAFT.
   const { data: progress } = useQuery({
     queryKey: ['order-progress', order.id],
     queryFn: () => getOrderProgress(order.id),
@@ -660,12 +723,16 @@ function PermitCard({ order }: { order: ProductionOrder }) {
                 </div>
               )}
 
-              {/* Material Shipment */}
+              {/* Material Shipment — RESULT_SENT tetap disertakan karena order
+                  bisa saja masih butuh kiriman material susulan meski hasil
+                  pertama sudah terkirim (produksi belum tentu selesai 100%) */}
               {['CONFIRMED', 'MAT_SENT', 'IN_PROGRESS', 'RESULT_SENT'].includes(order.status) && progress && (
                 <MaterialShipmentSection order={order} progress={progress.material_progress} onRefresh={handleRefresh} />
               )}
 
-              {/* Tyre Delivery (read-only — pengiriman dilakukan oleh PRODUKSI) */}
+              {/* Tyre Delivery (read-only — pengiriman hasil aslinya dilakukan
+                  PRODUKSI di halaman terpisah, KirimHasil.tsx; di sini gudang
+                  cuma memantau progresnya) */}
               {['IN_PROGRESS', 'RESULT_SENT'].includes(order.status) && progress && (
                 <TyreDeliverySection order={order} progress={progress.tyre_progress} />
               )}
@@ -690,6 +757,12 @@ function PermitCard({ order }: { order: ProductionOrder }) {
 }
 
 // ── Add Izin Form ─────────────────────────────────────────────────────────────
+// Form bikin izin baru. Validasinya 2 lapis:
+//   1. Di sini (handleSubmit) — validasi ringan sebelum kirim request sama
+//      sekali: minimal 1 item lengkap (ukuran ban + qty).
+//   2. Di backend (production/views.py: create()) — validasi berat yang
+//      butuh data server (stok cukup/tidak). Kalau gagal di lapis ini,
+//      responsenya membawa `shortages` yang ditangkap di onError bawah.
 
 function AddIzinForm({ tyreSpecs, onClose }: { tyreSpecs: TyreSpec[]; onClose: () => void }) {
   const qc = useQueryClient()
@@ -834,14 +907,18 @@ function AddIzinForm({ tyreSpecs, onClose }: { tyreSpecs: TyreSpec[]; onClose: (
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
+// Komponen yang di-export & didaftarkan sebagai route "/izin" di App.tsx.
+// Tugasnya: ambil daftar order (dipaginasi dari backend) + daftar tyre spec
+// (untuk dropdown di form Buat Izin), lalu render metrik ringkasan, filter
+// status, dan list PermitCard.
 
 export function IzinPage() {
-  const [showForm,    setShowForm]    = useState(false)
-  const [filterStatus, setFilterStatus] = useState('SEMUA')
-  const [page, setPage] = useState(1)
+  const [showForm,    setShowForm]    = useState(false)   // tampil/sembunyi AddIzinForm
+  const [filterStatus, setFilterStatus] = useState('SEMUA') // filter pill yang aktif
+  const [page, setPage] = useState(1)                       // halaman pagination saat ini
 
   const { data: ordersData, isLoading } = useQuery({
-    queryKey: ['orders', page],
+    queryKey: ['orders', page],  // queryKey menyertakan `page` -> ganti halaman = query baru & di-cache terpisah
     queryFn: () => getOrders({ page: String(page), page_size: '15' }),
   })
   const { data: specsData } = useQuery({
@@ -851,6 +928,10 @@ export function IzinPage() {
 
   const orders    = ordersData?.results ?? []
   const tyreSpecs = specsData?.results ?? []
+  // Catatan: filter status & hitung metrik (countBy) dilakukan CLIENT-SIDE dari
+  // data 1 halaman yang sudah di-fetch (page_size 15) — bukan query terpisah
+  // ke backend per status. Cukup untuk skala data saat ini, tapi berarti
+  // angka "Total"/badge di metrics-grid cuma mencerminkan halaman aktif.
   const filtered  = filterStatus === 'SEMUA' ? orders : orders.filter(o => o.status === filterStatus)
   const countBy   = (s: string) => orders.filter(o => o.status === s).length
 

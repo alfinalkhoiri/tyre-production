@@ -32,8 +32,22 @@ from .serializers import (
 )
 from .utils import aggregate_requirements
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ProductionOrderViewSet = "otak" dari alur Izin Produksi. Ini sebuah
+# ModelViewSet DRF: secara otomatis menyediakan list/retrieve/create/
+# update/destroy standar dari `queryset` + `serializer_class` di bawah,
+# DITAMBAH beberapa `@action` custom (confirm, reject, start, done, shipments,
+# deliveries, dst) untuk transisi status & sub-alur yang tidak sekadar CRUD.
+#
+# Semua action ini dipanggil dari frontend lewat IzinPage.tsx / KirimHasil.tsx
+# / TerimaHasil.tsx — lihat url_path masing-masing untuk tahu endpoint-nya.
+# ═══════════════════════════════════════════════════════════════════════════
+
 
 class ProductionOrderViewSet(viewsets.ModelViewSet):
+    # prefetch_related = optimasi query: begitu daftar order diambil, Django
+    # sekalian ambil semua items + tyre_spec + bom_items + material terkait
+    # dalam beberapa query besar, bukan 1 query kecil per order (N+1 problem).
     queryset = ProductionOrder.objects.prefetch_related(
         'items__tyre_spec__bom_items__material'
     )
@@ -52,6 +66,9 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
     }
 
     def get_permissions(self):
+        # DRF memanggil method ini di setiap request untuk tahu permission
+        # class mana yang berlaku, tergantung `self.action` (nama action yang
+        # sedang diakses: 'list', 'create', 'confirm', 'shipments', dst).
         if self.action in self._read_actions:
             return [IsAuthenticated()]
         if self.action in ('shipments', 'receive_material'):
@@ -64,9 +81,19 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         return [IsAdminOrPurchasing()]
 
     def create(self, request, *args, **kwargs):
+        """Bikin izin produksi baru (status awal selalu DRAFT).
+
+        Alurnya sengaja 2 tahap: VALIDASI dulu semua syarat (item minimal 1,
+        stok cukup), baru SIMPAN — supaya tidak ada izin "setengah jadi" yang
+        kesimpan di database kalau ternyata gagal di tengah jalan.
+        """
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
 
+        # `items` (daftar ukuran ban + qty target) dikirim terpisah dari field
+        # utama ProductionOrder, jadi divalidasi manual di sini (bukan lewat
+        # serializer) — baris yang tidak lengkap (tyre_spec/qty_plan kosong)
+        # otomatis dibuang.
         raw_items = [
             it for it in request.data.get('items', [])
             if it.get('tyre_spec') and it.get('qty_plan')
@@ -79,6 +106,10 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
         # Cek stok material sebelum izin dibuat — jangan biarkan izin baru
         # lolos kalau material yang dibutuhkan sudah diketahui tidak cukup.
+        # `aggregate_requirements()` (lihat production/utils.py) menghitung
+        # total kebutuhan material dari BOM tiap tyre_spec × qty_plan, lalu
+        # membandingkannya dengan stok gudang yang TERSEDIA (stok dikurangi
+        # yang sudah dikunci order lain — lihat StockReservation di models.py).
         unsaved_items = [
             ProductionOrderItem(tyre_spec_id=it['tyre_spec'], qty_plan=it['qty_plan'])
             for it in raw_items
@@ -102,23 +133,38 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Baru sampai sini datanya benar-benar disimpan: header order dulu,
+        # lalu tiap baris item satu-satu (ditautkan ke order yang baru dibuat).
         order = ser.save()
         for it in raw_items:
             ProductionOrderItem.objects.create(
                 order=order, tyre_spec_id=it['tyre_spec'], qty_plan=it['qty_plan']
             )
-        order.refresh_from_db()
+        order.refresh_from_db()  # supaya response membawa items yang baru saja ditambahkan
         return Response(self.get_serializer(order).data, status=status.HTTP_201_CREATED)
 
     # ── Status transitions ────────────────────────────────────────────────────
+    # Bagian ini adalah jantung state machine yang digambarkan di komentar atas
+    # production/models.py. Tiap method di bawah = satu tombol aksi di frontend
+    # (Konfirmasi, Tolak, Mulai Produksi, Tandai Selesai).
 
     @action(detail=True, methods=['post'], url_path='confirm')
     def confirm(self, request, pk=None):
+        """DRAFT -> CONFIRMED. Dipanggil saat klik tombol "Konfirmasi" di IzinPage.
+
+        Ini titik di mana stok material BENAR-BENAR dikunci (StockReservation)
+        untuk order ini — supaya order lain yang confirm belakangan tidak bisa
+        "merebut" material yang sudah dijanjikan ke order ini duluan.
+        """
         from .models import StockReservation
         order = self.get_object()
         if order.status != ProductionOrder.STATUS_DRAFT:
             return Response({'detail': 'Hanya order DRAFT yang bisa dikonfirmasi.'}, status=400)
 
+        # Cek ulang kecukupan stok (sama seperti saat create(), tapi kali ini
+        # `exclude_order_id=order.pk` supaya reservation milik order INI SENDIRI
+        # — kalau sebelumnya pernah gagal confirm lalu dicoba lagi — tidak ikut
+        # dihitung sebagai "sudah terpakai order lain".
         items = order.items.prefetch_related('tyre_spec__bom_items__material').all()
         reqs  = aggregate_requirements(items, exclude_order_id=order.pk)
         shortages = [
@@ -140,7 +186,9 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Kunci stok untuk izin ini
+        # Kunci stok untuk izin ini — update_or_create supaya aman dipanggil
+        # ulang (idempotent): kalau reservation untuk material ini sudah ada,
+        # tinggal update angkanya, bukan bikin baris duplikat.
         for r in reqs:
             if r['qty_needed'] > 0:
                 StockReservation.objects.update_or_create(
@@ -150,12 +198,17 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
         order.status = ProductionOrder.STATUS_CONFIRMED
         order.save()
+        # log() mencatat aksi ini ke AuditLog (tabel accounts_auditlog) —
+        # dipakai halaman Audit Log untuk menampilkan riwayat "siapa ubah apa".
         log(request.user, AuditLog.ACTION_STATUS, 'ProductionOrder', order.pk,
             order.number, request=request, detail={'status': 'CONFIRMED'})
         return Response(ProductionOrderSerializer(order).data)
 
     @action(detail=True, methods=['post'], url_path='reject')
     def reject(self, request, pk=None):
+        """DRAFT -> REJECTED. Jalur "keluar" alternatif selain confirm — dipakai
+        kalau izin ternyata tidak jadi diproses. Cuma boleh dari DRAFT karena
+        begitu sudah CONFIRMED, stok sudah terlanjur dikunci untuk order ini."""
         order = self.get_object()
         if order.status != ProductionOrder.STATUS_DRAFT:
             return Response({'detail': 'Hanya order DRAFT yang bisa ditolak.'}, status=400)
@@ -168,6 +221,9 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='requirements')
     def requirements(self, request, pk=None):
+        """Endpoint READ-ONLY: cuma menghitung & menampilkan kebutuhan material
+        (tanpa mengubah apapun) — dipakai IzinPage untuk preview tabel
+        "Kebutuhan Material" sebelum user benar-benar klik Konfirmasi."""
         order = self.get_object()
         items = order.items.prefetch_related('tyre_spec__bom_items__material').all()
         reqs  = aggregate_requirements(items, exclude_order_id=order.pk)
@@ -175,6 +231,10 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='start')
     def start(self, request, pk=None):
+        """CONFIRMED/MAT_SENT -> IN_PROGRESS, dipicu manual lewat tombol "Mulai
+        Produksi". (Catatan: di alur normal, transisi ke IN_PROGRESS lebih sering
+        terjadi OTOMATIS lewat receive_material()/`_check_material_completion`
+        di bawah — action ini jalur manual/cadangan.)"""
         order = self.get_object()
         if order.status not in [ProductionOrder.STATUS_CONFIRMED, ProductionOrder.STATUS_MAT_SENT]:
             return Response({'detail': 'Order harus CONFIRMED atau MAT_SENT sebelum dimulai.'}, status=400)
@@ -186,11 +246,20 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='done')
     def done(self, request, pk=None):
+        """IN_PROGRESS/RESULT_SENT -> DONE, dipicu tombol "Tandai Selesai".
+
+        Beda dengan transisi status lain di alur ini, DONE justru SENGAJA
+        mengecek kelengkapan 100% (bukan "kiriman pertama cukup") — supaya
+        order tidak bisa ditutup selagi masih ada sisa ban yang belum
+        dikirim ke gudang (qty_actual terkumpul < qty_plan).
+        """
         from .models import StockReservation
         order = self.get_object()
         if order.status not in [ProductionOrder.STATUS_IN_PROGRESS, ProductionOrder.STATUS_RESULT_SENT]:
             return Response({'detail': 'Order harus IN_PROGRESS atau RESULT_SENT sebelum diselesaikan.'}, status=400)
 
+        # Bandingkan total qty_plan (target) vs total qty_actual yang sudah
+        # dikirim (bisa dari beberapa TyreDelivery/tanggal berbeda), per jenis ban.
         planned: dict = {item.tyre_spec_id: item.qty_plan for item in order.items.select_related('tyre_spec')}
         delivered: dict = {}
         for d in order.tyre_deliveries.prefetch_related('entries').all():
@@ -223,12 +292,18 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         return Response(ProductionOrderSerializer(order).data)
 
     def perform_destroy(self, instance):
+        # Method bawaan DRF yang dipanggil saat DELETE /orders/<id>/ — di-
+        # override supaya reservation ikut dibersihkan (kalau tidak, baris
+        # StockReservation jadi "yatim" menunjuk ke order yang sudah hilang).
         from .models import StockReservation
-        # Hapus reservation sebelum menghapus order
         StockReservation.objects.filter(order=instance).delete()
         instance.delete()
 
-    # ── Material Shipments ────────────────────────────────────────────────────
+    # ── Material Shipments (Gudang -> Produksi) ───────────────────────────────
+    # Endpoint gabungan GET+POST di satu url_path yang sama ("shipments") —
+    # pola umum di DRF: GET untuk lihat riwayat, POST untuk kirim baru.
+    # Dipakai halaman IzinPage (gudang, kirim) dan MaterialPage (produksi,
+    # untuk lihat & konfirmasi terima lewat receive_material di bawah).
 
     @action(detail=True, methods=['get', 'post'], url_path='shipments')
     def shipments(self, request, pk=None):
@@ -257,6 +332,11 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         from .models import StockReservation
         from decimal import Decimal
 
+        # Satu blok atomic mencakup: simpan shipment + tiap baris entry +
+        # potong stok gudang + kurangi/lepas StockReservation. Kalau salah
+        # satu material ternyata stoknya kurang di tengah loop, exception
+        # akan membatalkan SEMUANYA (termasuk shipment yang baru dibuat tadi)
+        # — bukan cuma berhenti di baris yang gagal.
         with transaction.atomic():
             shipment = ser.save(order=order)
 
@@ -268,7 +348,14 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
                     raise ValidationError({
                         'detail': f'Stok {mat.kode} tidak cukup (tersedia {mat.stock}, diminta {e.qty}).'
                     })
+                # F('stock') - e.qty = pengurangan dilakukan LANGSUNG di sisi
+                # database (SQL `UPDATE ... SET stock = stock - qty`), bukan
+                # baca-nilai-lalu-tulis-balik dari Python — lebih aman dari
+                # race condition dibanding `mat.stock -= e.qty; mat.save()`.
                 MatModel.objects.filter(pk=mat.pk).update(stock=F('stock') - e.qty)
+                # Material yang sudah benar-benar dikirim tidak perlu "dikunci"
+                # lagi buat order ini — kurangi (atau hapus kalau sudah 0)
+                # StockReservation-nya secara proporsional.
                 try:
                     res = StockReservation.objects.get(order=order, material_id=e.material_id)
                     new_qty = float(res.qty_reserved) - float(e.qty)
@@ -288,6 +375,10 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='receive-material')
     def receive_material(self, request, pk=None):
+        """Dipanggil dari sisi PRODUKSI: konfirmasi bahwa satu MaterialShipment
+        sudah benar-benar sampai & diterima di lantai produksi. Ini yang
+        memicu transisi CONFIRMED -> MAT_SENT (lewat _check_material_completion)
+        dan bisa auto-lanjut ke IN_PROGRESS kalau materialnya lengkap."""
         from accounts.permissions import get_role
         if get_role(request.user) not in ('admin', 'purchasing', 'operator'):
             return Response({'detail': 'Tidak punya izin untuk konfirmasi penerimaan material.'}, status=status.HTTP_403_FORBIDDEN)
@@ -329,7 +420,10 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
             order.status = ProductionOrder.STATUS_MAT_SENT
             order.save()
 
-    # ── Tyre Deliveries ───────────────────────────────────────────────────────
+    # ── Tyre Deliveries (Produksi -> Gudang) ──────────────────────────────────
+    # Arah baliknya dari Material Shipment: ban jadi dikirim dari lantai
+    # produksi kembali ke gudang. Polanya sama (GET lihat riwayat, POST kirim
+    # baru), dipakai KirimHasil.tsx (produksi) dan TerimaHasil.tsx (gudang).
 
     @action(detail=True, methods=['get', 'post'], url_path='deliveries')
     def deliveries(self, request, pk=None):
@@ -361,14 +455,25 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
     def _check_delivery_completion(self, order):
         # Pindah ke RESULT_SENT segera setelah kiriman hasil pertama,
         # tanpa menunggu 100% target terpenuhi (hasil bisa dikirim bertahap).
+        # (Kelengkapan 100%-nya baru benar-benar dicek nanti di action `done`,
+        # sebelum order boleh ditutup — lihat komentar di method `done` di atas.)
         if order.status == ProductionOrder.STATUS_IN_PROGRESS:
             order.status = ProductionOrder.STATUS_RESULT_SENT
             order.save()
 
     # ── Production stock summary ──────────────────────────────────────────────
+    # Bagian di bawah ini (prod_stock, purchasing_alerts, pending_shipments,
+    # pending_counts, order_yield, safety_suggestions, analytics, progress)
+    # BUKAN bagian dari state machine izin produksi — ini endpoint pendukung
+    # yang menyuplai data untuk halaman lain (Dashboard, Stok Produksi,
+    # Analitik, badge notifikasi navbar). Dikomentari singkat saja di sini.
 
     @action(detail=False, methods=['get'], url_path='prod-stock')
     def prod_stock(self, request):
+        # "Stok produksi" = total material yang SUDAH diterima di lantai
+        # produksi (dari shipment yang confirmed) dikurangi yang sudah dipakai
+        # (DailyUsageEntry) — dihitung on-the-fly, bukan disimpan di kolom
+        # tersendiri. Ini sumber data halaman StokProdPage & ReportStokProdPage.
         from .models import MaterialShipmentEntry, DailyUsageEntry
         from django.db.models import Sum
         from specification.models import Material as MatModel
@@ -398,6 +503,9 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='purchasing-alerts')
     def purchasing_alerts(self, request):
+        # Ringkasan untuk Dashboard admin/purchasing: material apa saja yang
+        # stoknya (gudang maupun produksi) sudah di bawah safety stock, plus
+        # jumlah order yang masih aktif/draft.
         from .models import MaterialShipmentEntry, DailyUsageEntry
         from django.db.models import Sum, F
         from specification.models import Material as MatModel
@@ -453,6 +561,8 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='pending-shipments')
     def pending_shipments(self, request):
+        # Daftar semua shipment yang BELUM dikonfirmasi diterima (lintas semua
+        # order) — dipakai badge notifikasi "Material" di navbar produksi.
         from .models import MaterialShipment as ShipmentModel
         qs = (
             ShipmentModel.objects
@@ -465,6 +575,8 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='pending-counts')
     def pending_counts(self, request):
+        # Cuma angka (bukan detail) — sumber 2 badge merah di navbar
+        # (Material & Terima Hasil), di-poll berkala oleh TabBar.tsx.
         from .models import MaterialShipment as ShipmentModel
         return Response({
             'pending_shipments': ShipmentModel.objects.filter(confirmed=False).count(),
@@ -473,6 +585,10 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='yield')
     def order_yield(self, request, pk=None):
+        # "Yield" = seberapa efisien pemakaian material dibanding perkiraan BOM
+        # untuk SATU order tertentu (dipakai IzinPage saat order sudah DONE,
+        # bagian YieldSection). Bandingkan expected (dari BOM × hasil aktual
+        # yang dikirim) vs actual (dari DailyUsageEntry yang ditautkan ke order ini).
         import math
         from django.db.models import Sum
         from .models import DailyUsageEntry
@@ -557,6 +673,9 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='safety-suggestions')
     def safety_suggestions(self, request):
+        # Saran angka safety_stock ideal per material, pakai rumus statistik
+        # dasar: rata-rata pemakaian harian × lead time + buffer (z-score ×
+        # standar deviasi) — dipakai tab "Safety Stock" di halaman Stok Material.
         import math
         from datetime import date, timedelta
         from django.db.models import Sum
@@ -624,6 +743,9 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='analytics')
     def analytics(self, request):
+        # Satu endpoint besar yang menyuplai SEMUA grafik di halaman Analitik
+        # sekaligus (bukan beberapa endpoint terpisah) — 4 bagian dihitung
+        # berurutan di bawah lalu digabung jadi satu Response di akhir.
         from datetime import date, timedelta
         from django.db.models import Sum, Count
         from .models import DailyUsageEntry, TyreDeliveryEntry
@@ -752,6 +874,9 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='progress')
     def progress(self, request, pk=None):
+        """Dipanggil IzinPage/TerimaHasil/KirimHasil saat sebuah order card
+        di-expand — mengembalikan 2 progress bar sekaligus: material
+        (dibutuhkan vs dikirim vs diterima) dan hasil ban (target vs terkirim)."""
         order = self.get_object()
 
         # Material progress — units in ROLL or PCE (same as requirements)
@@ -792,7 +917,12 @@ class ProductionOrderViewSet(viewsets.ModelViewSet):
         })
 
 
+# ── Viewset sederhana lainnya (bukan bagian inti alur status Izin Produksi) ──
+
 class ProductionOrderItemViewSet(viewsets.ModelViewSet):
+    """CRUD langsung ke tabel ProductionOrderItem satu-satu (di luar create()
+    ProductionOrderViewSet yang bikin banyak item sekaligus). Jarang dipakai
+    langsung dari frontend — lebih sebagai endpoint pelengkap/API surface."""
     queryset = ProductionOrderItem.objects.select_related('order', 'tyre_spec')
     serializer_class = ProductionOrderItemSerializer
     permission_classes = [ProductionOrderWritePermission]
@@ -801,6 +931,9 @@ class ProductionOrderItemViewSet(viewsets.ModelViewSet):
 
 
 class DailyUsageViewSet(viewsets.ModelViewSet):
+    """CRUD untuk laporan Pemakaian Harian (header + nested entries).
+    get_serializer_class() memilih serializer BEDA untuk baca vs tulis —
+    pola yang sama dijelaskan di bagian atas production/serializers.py."""
     queryset = DailyUsage.objects.prefetch_related('entries__material').select_related('order')
     permission_classes = [DailyUsageWritePermission]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
@@ -815,6 +948,8 @@ class DailyUsageViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='range')
     def date_range(self, request):
+        # Filter laporan berdasarkan rentang tanggal, dipakai modal Kirim
+        # Hasil (KirimHasil.tsx) untuk cek data pemakaian sebelum estimasi hasil.
         date_from = request.query_params.get('from')
         date_to   = request.query_params.get('to')
         qs = self.get_queryset()
@@ -826,6 +961,9 @@ class DailyUsageViewSet(viewsets.ModelViewSet):
 
 
 class DailyUsageEntryViewSet(viewsets.ModelViewSet):
+    """Akses langsung per-baris DailyUsageEntry (bukan lewat header DailyUsage).
+    Endpoint ini ada di URL tapi TIDAK dipakai frontend saat ini — semua
+    tulis-menulis entry dilakukan lewat DailyUsageViewSet (nested), bukan di sini."""
     queryset = DailyUsageEntry.objects.select_related('daily_usage', 'material')
     serializer_class = DailyUsageEntrySerializer
     permission_classes = [DailyUsageWritePermission]

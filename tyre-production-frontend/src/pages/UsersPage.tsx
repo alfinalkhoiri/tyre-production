@@ -8,6 +8,14 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { Pagination } from '@/components/ui/Pagination'
 
+// ═══════════════════════════════════════════════════════════════════════════
+// HALAMAN KELOLA USER (admin only) — backend: accounts/views.py.
+// Struktur file: UsersPage (tabel + tombol aksi) membuka salah satu dari 3
+// modal sesuai aksi yang diklik: UserFormModal (dipakai DUA MODE — tambah &
+// edit, dibedakan lewat prop `user`), ResetPasswordModal, atau ConfirmDialog
+// bawaan untuk hapus. Semua panggilan API ada di @/api/users.ts.
+// ═══════════════════════════════════════════════════════════════════════════
+
 const ROLES: Role[] = ['admin', 'purchasing', 'operator', 'viewer']
 
 function RoleBadge({ role }: { role: Role }) {
@@ -39,6 +47,11 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   )
 }
 
+// Helper untuk membaca pesan error dari response API Django REST Framework.
+// DRF punya 2 bentuk error yang umum: {"detail": "pesan"} (dari raise
+// ValidationError({'detail': ...}) di backend) atau {"field_x": ["pesan"]}
+// (dari validasi field serializer otomatis) — fungsi ini menangani keduanya
+// supaya pesan error apapun bentuknya tetap bisa ditampilkan ke user.
 function extractErrorDetail(err: unknown): string | undefined {
   const data = (err as { response?: { data?: Record<string, unknown> } })?.response?.data
   if (!data) return undefined
@@ -52,6 +65,10 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 }
 
 // ── User Form Modal (create/edit) ──────────────────────────────────────────
+// Satu komponen dipakai untuk DUA tujuan berbeda (tambah user baru & edit
+// user yang sudah ada) — dibedakan lewat prop `user`: null berarti mode
+// tambah, terisi berarti mode edit. Ini pola umum di React supaya tidak perlu
+// menulis 2 form yang isinya 90% sama.
 
 function UserFormModal({ user, onClose, onSaved }: {
   user: ManagedUser | null // null = mode tambah
@@ -74,6 +91,12 @@ function UserFormModal({ user, onClose, onSaved }: {
     if (!isEdit && password.length < 8) { setError('Password minimal 8 karakter'); return }
     setSaving(true); setError('')
     try {
+      // Endpoint yang dipanggil beda tergantung mode: updateUser() -> PATCH
+      // /auth/users/<id>/ (UserManageSerializer, tidak menyentuh password
+      // sama sekali), createUser() -> POST /auth/register/ (RegisterSerializer,
+      // wajib password). Makanya field password hanya tampil saat !isEdit —
+      // ganti password user lain dilakukan lewat modal terpisah (Reset
+      // Password), bukan lewat form edit ini.
       if (isEdit) {
         await updateUser(user!.id, { username, email, first_name: firstName, last_name: lastName, role })
         success('User diperbarui', `${username} berhasil diperbarui`)
@@ -137,6 +160,10 @@ function UserFormModal({ user, onClose, onSaved }: {
 }
 
 // ── Reset Password Modal ────────────────────────────────────────────────────
+// Beda dengan halaman "ganti password sendiri" (kalau ada) yang minta
+// password lama, di sini admin cuma isi password BARU untuk user lain —
+// backend-nya (AdminSetPasswordView) memang sengaja tidak mengecek password
+// lama sama sekali, karena admin dianggap sudah berwenang penuh.
 
 function ResetPasswordModal({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const { success, error: toastError } = useToast()
@@ -182,14 +209,20 @@ function ResetPasswordModal({ user, onClose }: { user: ManagedUser; onClose: () 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function UsersPage() {
+  // `me` = user yang SEDANG LOGIN (dari AuthContext, hasil login tersimpan di
+  // localStorage) — dipakai untuk bandingkan dengan tiap baris tabel (`isMe`
+  // di bawah), supaya tombol Hapus otomatis nonaktif untuk baris akun sendiri.
+  // Ini "penjagaan di sisi tampilan" saja — penjagaan SEBENARNYA tetap ada di
+  // backend (UserDetailView.perform_destroy, accounts/views.py) supaya tidak
+  // bisa dilewati cuma dengan memanggil API langsung tanpa lewat UI ini.
   const { user: me } = useAuth()
   const qc = useQueryClient()
   const { success, error: toastError } = useToast()
   const [page, setPage]         = useState(1)
-  const [showCreate, setShowCreate] = useState(false)
-  const [editing, setEditing]   = useState<ManagedUser | null>(null)
-  const [resetting, setResetting] = useState<ManagedUser | null>(null)
-  const [deleting, setDeleting] = useState<ManagedUser | null>(null)
+  const [showCreate, setShowCreate] = useState(false)      // modal "Tambah User" tampil?
+  const [editing, setEditing]   = useState<ManagedUser | null>(null)   // user yang sedang diedit (null = tidak ada modal edit)
+  const [resetting, setResetting] = useState<ManagedUser | null>(null) // user yang mau direset passwordnya
+  const [deleting, setDeleting] = useState<ManagedUser | null>(null)   // user yang mau dihapus (menunggu konfirmasi)
 
   const { data, isLoading } = useQuery({
     queryKey: ['users', page],

@@ -5,10 +5,22 @@ import { getMaterials } from '@/api/spec'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import type { Material } from '@/types'
 
+// ═══════════════════════════════════════════════════════════════════════════
+// HALAMAN REPORT STOK MATERIAL — versi "cetak/ekspor" dari data yang sama
+// dengan tab "Stok Saat Ini" di StokPage.tsx (data & rumus status-nya identik
+// sengaja disamakan). Bedanya halaman ini fokus untuk diunduh (Excel/PDF)
+// atau dicetak langsung, bukan untuk kelola stok sehari-hari.
+// ═══════════════════════════════════════════════════════════════════════════
+
 function formatNum(n: number, d = 2) {
   return n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
+// Hitung status stok SEPENUHNYA di browser (tidak minta backend menghitung),
+// dari data mentah stock/locked_qty/safety_stock yang sudah ada di response
+// GET /spec/materials/. `available` = stok yang benar-benar bisa dipakai
+// (stok gudang dikurangi yang sedang dikunci order lain — lihat StockReservation
+// di backend production/models.py).
 function computeRow(m: Material) {
   const stock     = parseFloat(m.stock)
   const locked    = parseFloat(m.locked_qty ?? '0')
@@ -51,6 +63,11 @@ export function ReportStokPage() {
   const fileStamp = new Date().toISOString().slice(0, 10)
 
   const exportExcel = async () => {
+    // `import('xlsx')` (bukan `import ... from 'xlsx'` biasa di atas file) =
+    // "dynamic import": library xlsx (~500KB) baru benar-benar diunduh
+    // browser saat tombol ini DIKLIK, bukan ikut dimuat saat halaman pertama
+    // kali dibuka. Ini yang disebut code-splitting — mempercepat loading awal
+    // halaman untuk kasus (mayoritas) user yang tidak selalu export Excel.
     const XLSX = await import('xlsx')
     const sheetData = rows.map(({ m, stock, locked, available, safety, status }) => ({
       Kode: m.kode,
@@ -92,6 +109,11 @@ export function ReportStokPage() {
     doc.save(`laporan-stok-material-${fileStamp}.pdf`)
   }
 
+  // window.print() = fungsi bawaan browser, membuka dialog cetak/save-as-PDF.
+  // Supaya hasil cetaknya rapi (tanpa tombol/filter, tanpa navbar situs), ada
+  // aturan CSS `@media print` di src/index.css: elemen ber-class "no-print"
+  // disembunyikan dan "print-only" (di bawah) baru dimunculkan — KHUSUS saat
+  // mode cetak, tidak berpengaruh ke tampilan normal di layar.
   const handlePrint = () => window.print()
 
   return (
